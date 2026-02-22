@@ -23,6 +23,7 @@ import TerrainEditor from '@/features/terrain/components/terrain-editor'
 import { useTerrainEditorStore } from '@/stores/terrain-editor-store';
 import QuickBrushBar from '@/features/quick-brush/components/quick-brush-bar';
 import FloorPlanEditor from '@/features/floor-plan/components/floor-plan-editor';
+import { useFloorPlanStore } from '@/stores/floor-plan-store';
 
 const EditorLayout: React.FC = () => {
   const shaderOpen = useShaderEditorStore((s) => s.open);
@@ -31,6 +32,17 @@ const EditorLayout: React.FC = () => {
   const minimalUi = useWorkspaceStore((s) => s.minimalUi ?? false);
   const uvOpen = useUVEditorStore((s) => s.open);
   const setUVOpen = useUVEditorStore((s) => s.setOpen);
+  const terrainEditorOpen = useTerrainEditorStore((s) => s.open);
+  const floorPlanOpen = useFloorPlanStore((s) => s.open);
+
+  if (floorPlanOpen) {
+    return (
+      <div className="w-screen h-screen overflow-hidden bg-[#0e1116] text-gray-200">
+        <FloorPlanEditor />
+      </div>
+    );
+  }
+
   return (
     <div className="w-screen h-screen overflow-hidden bg-[#0e1116] text-gray-200">
       {/* Top OS-like Menu Bar */}
@@ -98,8 +110,7 @@ const EditorLayout: React.FC = () => {
           {/* UV Editor Panel */}
           <UVEditor open={uvOpen} onOpenChange={setUVOpen} />
 
-          <TerrainEditor open={useTerrainEditorStore((s) => s.open)} onOpenChange={() => { }} />
-          <FloorPlanEditor />
+          <TerrainEditor open={terrainEditorOpen} onOpenChange={() => { }} />
         </div>
       </div>
     </div>

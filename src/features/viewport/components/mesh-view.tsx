@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Raycaster, Intersection, Mesh, MeshStandardMaterial, Texture } from 'three/webgpu';
+import { Raycaster, Intersection, Mesh, MeshStandardMaterial, Texture, DoubleSide } from 'three/webgpu';
 import useDisplayMesh from '../hooks/useDisplayMesh';
 import useGeometryAndMaterial from '../hooks/useGeometryAndMaterial';
 import { useViewportStore } from '@/stores/viewport-store';
@@ -72,7 +72,7 @@ const MeshView: React.FC<Props> = ({ objectId, noTransform = false }) => {
 
   const floorPlanMaterial = useMemo(() => {
     if (!floorTexture) return null;
-    const mat = new MeshStandardMaterial({ map: floorTexture, color: 0xffffff, roughness: 0.95, metalness: 0 });
+    const mat = new MeshStandardMaterial({ map: floorTexture, color: 0xffffff, roughness: 0.95, metalness: 0, side: DoubleSide });
     return mat;
   }, [floorTexture]);
 

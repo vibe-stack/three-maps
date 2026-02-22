@@ -13,10 +13,13 @@ import {
   Blinds,
   Route,
   PanelTop,
+  Save,
+  X,
 } from 'lucide-react';
 import { ensureFileIdForBlob } from '@/stores/files-store';
 import { FloorPlanElement, FloorPlanTool, useFloorPlanStore } from '@/stores/floor-plan-store';
 import { BRUSH_REGISTRY } from '@/features/quick-brush/brushes/registry';
+import { DragInput } from '@/components/drag-input';
 
 type Vec2 = { x: number; y: number };
 
@@ -134,6 +137,49 @@ const drawMeasure = (
   ctx.fillText(label, 0, -9);
   ctx.restore();
 };
+
+const computePlanBounds = (elements: FloorPlanElement[]) => {
+  if (!elements.length) {
+    return { minX: -4, maxX: 4, minY: -4, maxY: 4, width: 8, height: 8 };
+  }
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  for (const el of elements) {
+    if (el.type === 'text') {
+      minX = Math.min(minX, el.x - 0.5);
+      maxX = Math.max(maxX, el.x + 0.5);
+      minY = Math.min(minY, el.y - 0.2);
+      maxY = Math.max(maxY, el.y + 0.2);
+      continue;
+    }
+    if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
+      minX = Math.min(minX, el.x, el.x2);
+      maxX = Math.max(maxX, el.x, el.x2);
+      minY = Math.min(minY, el.y, el.y2);
+      maxY = Math.max(maxY, el.y, el.y2);
+      continue;
+    }
+    minX = Math.min(minX, el.x - el.width * 0.5);
+    maxX = Math.max(maxX, el.x + el.width * 0.5);
+    minY = Math.min(minY, el.y - el.height * 0.5);
+    maxY = Math.max(maxY, el.y + el.height * 0.5);
+  }
+
+  const width = Math.max(0.1, maxX - minX);
+  const height = Math.max(0.1, maxY - minY);
+  return { minX, maxX, minY, maxY, width, height };
+};
+
+const serializeDraft = (draft: NonNullable<ReturnType<typeof useFloorPlanStore.getState>['draft']>) => JSON.stringify({
+  gridSize: draft.gridSize,
+  snapEnabled: draft.snapEnabled,
+  planeWidth: draft.planeWidth,
+  planeHeight: draft.planeHeight,
+  elements: draft.elements,
+});
 
 const renderTexture = async (elements: FloorPlanElement[]): Promise<Blob | null> => {
   const canvas = document.createElement('canvas');
@@ -284,9 +330,30 @@ const FloorPlanEditor: React.FC = () => {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const textInputRef = React.useRef<HTMLInputElement | null>(null);
   const dprRef = React.useRef(1);
+  const lastSizeRef = React.useRef({ w: 0, h: 0, dpr: 0 });
   const isPanningRef = React.useRef(false);
   const panStartRef = React.useRef<Vec2>({ x: 0, y: 0 });
   const panOriginRef = React.useRef<Vec2>({ x: 0, y: 0 });
+  const initialDraftSnapshotRef = React.useRef<string | null>(null);
+  const panRef = React.useRef(pan);
+  const zoomRef = React.useRef(zoom);
+  const viewSizeRef = React.useRef(viewSize);
+
+  React.useEffect(() => { panRef.current = pan; }, [pan]);
+  React.useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+  React.useEffect(() => { viewSizeRef.current = viewSize; }, [viewSize]);
+
+  React.useEffect(() => {
+    if (!open || !draft) {
+      initialDraftSnapshotRef.current = null;
+      return;
+    }
+    if (!initialDraftSnapshotRef.current) {
+      initialDraftSnapshotRef.current = serializeDraft(draft);
+    }
+  }, [open, draft]);
+
+  const hasUnsavedChanges = !!(draft && initialDraftSnapshotRef.current && serializeDraft(draft) !== initialDraftSnapshotRef.current);
 
   const elements = draft?.elements ?? [];
 
@@ -386,12 +453,41 @@ const FloorPlanEditor: React.FC = () => {
       if (!open || !draft) return;
       if (e.key === ' ') setSpacePanning(true);
 
+      const keyLower = e.key.toLowerCase();
+
       if (pendingText) {
         if (e.key === 'Escape') {
           e.preventDefault();
           setPendingText(null);
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          commitPendingText();
         }
         return;
+      }
+
+      if (keyLower === 'v') {
+        e.preventDefault();
+        setTool('select');
+        return;
+      }
+
+      if (/^[1-9]$/.test(keyLower)) {
+        const idx = Number(keyLower);
+        const target = TOOL_LIST[idx]?.id;
+        if (target) {
+          e.preventDefault();
+          setTool(target);
+          return;
+        }
+      }
+
+      if (keyLower === 'delete' || keyLower === 'backspace') {
+        if (selection.size > 0) {
+          e.preventDefault();
+          clearSelected();
+          return;
+        }
       }
 
       if ((e.key === 'g' || e.key === 'G') && selection.size > 0 && !transform) {
@@ -420,6 +516,10 @@ const FloorPlanEditor: React.FC = () => {
           setWallChain(null);
           setWallPreview(null);
         } else {
+          if (hasUnsavedChanges) {
+            const ok = window.confirm('Discard unsaved floor plan changes?');
+            if (!ok) return;
+          }
           cancelDraft();
         }
       } else if (e.key === 'Enter' && wallChain) {
@@ -439,7 +539,7 @@ const FloorPlanEditor: React.FC = () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [open, draft, selection.size, transform, wallChain, updateDraft, cancelDraft, startTransform, pendingText]);
+  }, [open, draft, selection.size, transform, wallChain, updateDraft, cancelDraft, startTransform, pendingText, hasUnsavedChanges]);
 
   React.useEffect(() => {
     const canvas = canvasRef.current;
@@ -448,13 +548,25 @@ const FloorPlanEditor: React.FC = () => {
 
     const resize = () => {
       const rect = container.getBoundingClientRect();
+      const w = Math.max(1, Math.floor(rect.width));
+      const h = Math.max(1, Math.floor(rect.height));
+      if (w < 2 || h < 2) return;
       const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const prev = lastSizeRef.current;
+      if (prev.w === w && prev.h === h && prev.dpr === dpr) return;
+
+      lastSizeRef.current = { w, h, dpr };
       dprRef.current = dpr;
-      setViewSize({ w: Math.max(1, Math.floor(rect.width)), h: Math.max(1, Math.floor(rect.height)) });
-      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
-      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
-      canvas.style.width = `${Math.max(1, Math.floor(rect.width))}px`;
-      canvas.style.height = `${Math.max(1, Math.floor(rect.height))}px`;
+      setViewSize((curr) => (curr.w === w && curr.h === h ? curr : { w, h }));
+
+      const pixelW = Math.max(1, Math.floor(w * dpr));
+      const pixelH = Math.max(1, Math.floor(h * dpr));
+      if (canvas.width !== pixelW) canvas.width = pixelW;
+      if (canvas.height !== pixelH) canvas.height = pixelH;
+      const sw = `${w}px`;
+      const sh = `${h}px`;
+      if (canvas.style.width !== sw) canvas.style.width = sw;
+      if (canvas.style.height !== sh) canvas.style.height = sh;
     };
 
     resize();
@@ -462,6 +574,36 @@ const FloorPlanEditor: React.FC = () => {
     ro.observe(container);
     return () => ro.disconnect();
   }, [open, draft]);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!open || !canvas) return;
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = canvas.getBoundingClientRect();
+      const pos = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const currentPan = panRef.current;
+      const currentZoom = zoomRef.current;
+      const currentView = viewSizeRef.current;
+      const before = {
+        x: (pos.x - currentView.w * 0.5 - currentPan.x) / currentZoom,
+        y: (pos.y - currentView.h * 0.5 - currentPan.y) / currentZoom,
+      };
+      const nextZoom = Math.max(10, Math.min(260, currentZoom * (event.deltaY > 0 ? 0.92 : 1.08)));
+      const targetX = pos.x - currentView.w * 0.5;
+      const targetY = pos.y - currentView.h * 0.5;
+
+      setZoom(nextZoom);
+      setPan({ x: targetX - before.x * nextZoom, y: targetY - before.y * nextZoom });
+    };
+
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener('wheel', onWheel as EventListener);
+    };
+  }, [open]);
 
   React.useEffect(() => {
     const canvas = canvasRef.current;
@@ -586,11 +728,15 @@ const FloorPlanEditor: React.FC = () => {
       const sy = dragCreate.start.y;
       const ex = dragCreate.current.x;
       const ey = dragCreate.current.y;
-      const cx = (sx + ex) * 0.5;
-      const cy = (sy + ey) * 0.5;
+      const signX = ex >= sx ? 1 : -1;
+      const signY = ey >= sy ? 1 : -1;
+      const wWorld = Math.max(d.w, Math.abs(ex - sx));
+      const hWorld = Math.max(d.h, Math.abs(ey - sy));
+      const cx = sx + signX * (wWorld * 0.5);
+      const cy = sy + signY * (hWorld * 0.5);
       const center = worldToScreen({ x: cx, y: cy });
-      const w = Math.max(d.w * zoom, Math.abs(ex - sx) * zoom);
-      const h = Math.max(d.h * zoom, Math.abs(ey - sy) * zoom);
+      const w = wWorld * zoom;
+      const h = hWorld * zoom;
       ctx.save();
       ctx.strokeStyle = '#f59e0b';
       ctx.lineWidth = 1.5;
@@ -610,7 +756,7 @@ const FloorPlanEditor: React.FC = () => {
           ctx,
           { x: center.x - w * 0.5, y: center.y + h * 0.55 },
           { x: center.x + w * 0.5, y: center.y + h * 0.55 },
-          `${Math.max(d.w, Math.abs(ex - sx)).toFixed(2)}m`,
+          `${wWorld.toFixed(2)}m`,
           '#fbbf24'
         );
       } else {
@@ -619,7 +765,7 @@ const FloorPlanEditor: React.FC = () => {
           ctx,
           { x: center.x - w * 0.5, y: center.y + h * 0.55 },
           { x: center.x + w * 0.5, y: center.y + h * 0.55 },
-          `${Math.max(d.w, Math.abs(ex - sx)).toFixed(2)}m`,
+          `${wWorld.toFixed(2)}m`,
           '#fbbf24'
         );
       }
@@ -813,7 +959,11 @@ const FloorPlanEditor: React.FC = () => {
           } else if (transform.mode === 'rotate') {
             const a0 = Math.atan2(start.y - transform.origin.y, start.x - transform.origin.x);
             const a1 = Math.atan2(world.y - transform.origin.y, world.x - transform.origin.x);
-            const da = a1 - a0;
+            let da = a1 - a0;
+            if (draft.snapEnabled) {
+              const step = (5 * Math.PI) / 180;
+              da = Math.round(da / step) * step;
+            }
             if (next.shape === 'line' && typeof next.x2 === 'number' && typeof next.y2 === 'number') {
               const originalX2 = original.x2 as number;
               const originalY2 = original.y2 as number;
@@ -877,10 +1027,12 @@ const FloorPlanEditor: React.FC = () => {
       const sy = dragCreate.start.y;
       const ex = dragCreate.current.x;
       const ey = dragCreate.current.y;
-      const cx = (sx + ex) * 0.5;
-      const cy = (sy + ey) * 0.5;
+      const signX = ex >= sx ? 1 : -1;
+      const signY = ey >= sy ? 1 : -1;
       const w = Math.max(d.w, Math.abs(ex - sx));
       const h = Math.max(d.h, Math.abs(ey - sy));
+      const cx = sx + signX * (w * 0.5);
+      const cy = sy + signY * (h * 0.5);
 
       const element: FloorPlanElement = d.shape === 'line'
         ? {
@@ -916,21 +1068,6 @@ const FloorPlanEditor: React.FC = () => {
     if (transform) setTransform(null);
   };
 
-  const onWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const pos = pointerPos(event as unknown as React.PointerEvent<HTMLCanvasElement>);
-    const before = screenToWorld(pos);
-    const nextZoom = Math.max(10, Math.min(260, zoom * (event.deltaY > 0 ? 0.92 : 1.08)));
-    setZoom(nextZoom);
-    const targetX = pos.x - viewSize.w * 0.5;
-    const targetY = pos.y - viewSize.h * 0.5;
-    setPan({
-      x: targetX - before.x * nextZoom,
-      y: targetY - before.y * nextZoom,
-    });
-  };
-
   const commitPendingText = React.useCallback(() => {
     if (!pendingText || !pendingText.value.trim()) {
       setPendingText(null);
@@ -957,6 +1094,17 @@ const FloorPlanEditor: React.FC = () => {
 
   const handleSave = async () => {
     if (!draft) return;
+    if (pendingText) {
+      commitPendingText();
+      return;
+    }
+
+    const bounds = computePlanBounds(draft.elements);
+    updateDraft((d) => {
+      d.planeWidth = bounds.width;
+      d.planeHeight = bounds.height;
+    });
+
     const blob = await renderTexture(draft.elements);
     if (!blob) {
       saveDraft();
@@ -977,12 +1125,7 @@ const FloorPlanEditor: React.FC = () => {
   if (!open || !draft) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-10060 bg-[#0b0e13]/95"
-      onPointerDownCapture={(e) => e.stopPropagation()}
-      onPointerUpCapture={(e) => e.stopPropagation()}
-      onClickCapture={(e) => e.stopPropagation()}
-    >
+    <div className="fixed inset-0 z-10060 bg-[#0b0e13]/95">
       <div className="absolute inset-0" ref={containerRef}>
         <canvas
           ref={canvasRef}
@@ -991,7 +1134,6 @@ const FloorPlanEditor: React.FC = () => {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerLeave={onPointerUp}
-          onWheel={onWheel}
         />
       </div>
 
@@ -1006,7 +1148,7 @@ const FloorPlanEditor: React.FC = () => {
             value={pendingText.value}
             placeholder="Room label..."
             onChange={(e) => setPendingText((prev) => prev ? { ...prev, value: e.target.value } : prev)}
-            onBlur={() => commitPendingText()}
+            onBlur={() => {}}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
@@ -1020,8 +1162,54 @@ const FloorPlanEditor: React.FC = () => {
         </div>
       )}
 
-      <div className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 z-10061">
-        <div className="pointer-events-auto rounded-lg border border-white/10 bg-[#0f141b]/95 shadow-xl px-2 py-2 flex items-center gap-1.5 flex-wrap max-w-[95vw]">
+      <div className="pointer-events-none absolute top-7 left-1/2 -translate-x-1/2 z-10061 flex flex-col gap-2 max-w-[95vw] w-[min(95vw,1100px)]">
+        <div className="pointer-events-auto rounded-lg border border-white/10 bg-[#0f141b]/95 shadow-xl px-2 py-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              className={`px-2 py-1 rounded text-xs border flex items-center gap-1 ${draft.snapEnabled ? 'border-emerald-400/60 bg-emerald-400/15 text-emerald-200' : 'border-white/10 text-gray-300 hover:bg-white/10'}`}
+              onClick={() => updateDraft((d) => { d.snapEnabled = !d.snapEnabled; })}
+            >
+              <Magnet className="w-3.5 h-3.5" /> Snap
+            </button>
+            <div className="flex items-center gap-1 text-xs text-gray-300">
+              <Grid3X3 className="w-3.5 h-3.5" />
+              <DragInput
+                compact
+                value={draft.gridSize}
+                precision={2}
+                step={0.05}
+                min={0.05}
+                onChange={(v) => updateDraft((d) => { d.gridSize = Math.max(0.05, v); })}
+              />
+            </div>
+            <button className="px-2 py-1 rounded text-xs border border-white/10 text-gray-200 hover:bg-white/10" onClick={() => { setWallChain(null); setWallPreview(null); }}>
+              End Wall Chain
+            </button>
+            <button className="px-2 py-1 rounded text-xs border border-rose-400/40 text-rose-200 hover:bg-rose-500/10" onClick={clearSelected}>
+              Delete Selected
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              className="px-2 py-1 rounded text-xs border border-white/10 text-gray-200 hover:bg-white/10 flex items-center gap-1"
+              onClick={() => {
+                if (hasUnsavedChanges) {
+                  const ok = window.confirm('Discard unsaved floor plan changes?');
+                  if (!ok) return;
+                }
+                cancelDraft();
+              }}
+            >
+              <X className="w-3.5 h-3.5" /> Cancel
+            </button>
+            <button className="px-2 py-1 rounded text-xs border border-emerald-400/60 bg-emerald-400/20 text-emerald-100 hover:bg-emerald-400/30 flex items-center gap-1" onClick={handleSave}>
+              <Save className="w-3.5 h-3.5" /> Save
+            </button>
+          </div>
+        </div>
+
+        <div className="pointer-events-auto rounded-lg border border-white/10 bg-[#0f141b]/95 shadow-xl px-2 py-2 flex items-center gap-1.5 flex-wrap">
           {TOOL_LIST.map((entry) => (
             <button
               key={entry.id}
@@ -1033,40 +1221,6 @@ const FloorPlanEditor: React.FC = () => {
               <span>{entry.label}</span>
             </button>
           ))}
-
-          <div className="w-px h-5 bg-white/10 mx-1" />
-
-          <label className="text-xs text-gray-300 flex items-center gap-1">
-            <Grid3X3 className="w-3.5 h-3.5" />
-            <input
-              className="w-16 bg-black/40 border border-white/10 rounded px-1 py-0.5 text-xs"
-              type="number"
-              min={0.05}
-              step={0.05}
-              value={draft.gridSize}
-              onChange={(e) => updateDraft((d) => { d.gridSize = Math.max(0.05, Number(e.target.value) || 0.5); })}
-            />
-          </label>
-
-          <button
-            className={`px-2 py-1 rounded text-xs border flex items-center gap-1 ${draft.snapEnabled ? 'border-emerald-400/60 bg-emerald-400/15 text-emerald-200' : 'border-white/10 text-gray-300 hover:bg-white/10'}`}
-            onClick={() => updateDraft((d) => { d.snapEnabled = !d.snapEnabled; })}
-          >
-            <Magnet className="w-3.5 h-3.5" /> Snap
-          </button>
-
-          <button className="px-2 py-1 rounded text-xs border border-white/10 text-gray-200 hover:bg-white/10" onClick={() => { setWallChain(null); setWallPreview(null); }}>
-            End Wall Chain
-          </button>
-
-          <button className="px-2 py-1 rounded text-xs border border-rose-400/40 text-rose-200 hover:bg-rose-500/10" onClick={clearSelected}>
-            Delete Selected
-          </button>
-
-          <div className="w-px h-5 bg-white/10 mx-1" />
-
-          <button className="px-2 py-1 rounded text-xs border border-white/10 text-gray-200 hover:bg-white/10" onClick={cancelDraft}>Cancel</button>
-          <button className="px-2 py-1 rounded text-xs border border-emerald-400/60 bg-emerald-400/20 text-emerald-100 hover:bg-emerald-400/30" onClick={handleSave}>Save</button>
         </div>
       </div>
 

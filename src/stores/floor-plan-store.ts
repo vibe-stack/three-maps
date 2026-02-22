@@ -38,6 +38,8 @@ export type FloorPlanResource = {
   objectId: string;
   meshId: string;
   name: string;
+  planeWidth: number;
+  planeHeight: number;
   gridSize: number;
   snapEnabled: boolean;
   elements: FloorPlanElement[];
@@ -97,6 +99,8 @@ export const useFloorPlanStore = create<FloorPlanStore>()(
         objectId,
         meshId,
         name,
+        planeWidth: 8,
+        planeHeight: 8,
         gridSize: 0.5,
         snapEnabled: true,
         elements: [],
@@ -133,6 +137,23 @@ export const useFloorPlanStore = create<FloorPlanStore>()(
       const next = clonePlan(draft);
       if (textureFileId) next.textureFileId = textureFileId;
       next.updatedAt = Date.now();
+
+      try {
+        const scene = useSceneStore.getState();
+        const obj = scene.objects[next.objectId];
+        if (obj) {
+          const sx = Math.max(0.01, next.planeWidth / 8);
+          const sz = Math.max(0.01, next.planeHeight / 8);
+          scene.setTransform(next.objectId, {
+            scale: {
+              x: sx,
+              y: obj.transform.scale.y,
+              z: sz,
+            },
+          });
+        }
+      } catch {}
+
       set((state) => ({
         plans: { ...state.plans, [next.objectId]: next },
         open: false,
@@ -188,6 +209,8 @@ export const useFloorPlanStore = create<FloorPlanStore>()(
           ...plan,
           objectId,
           elements: Array.isArray(plan.elements) ? plan.elements.map((e) => ({ ...e })) : [],
+          planeWidth: Number.isFinite((plan as any).planeWidth) ? Math.max(0.1, (plan as any).planeWidth) : 8,
+          planeHeight: Number.isFinite((plan as any).planeHeight) ? Math.max(0.1, (plan as any).planeHeight) : 8,
           gridSize: Number.isFinite(plan.gridSize) ? Math.max(0.05, plan.gridSize) : 0.5,
           snapEnabled: plan.snapEnabled !== false,
           updatedAt: Number.isFinite(plan.updatedAt) ? plan.updatedAt : Date.now(),

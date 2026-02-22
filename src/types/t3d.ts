@@ -208,6 +208,8 @@ export interface T3DScene {
     objectId: string;
     meshId: string;
     name: string;
+    planeWidth?: number;
+    planeHeight?: number;
     gridSize: number;
     snapEnabled: boolean;
     textureFileId?: string;

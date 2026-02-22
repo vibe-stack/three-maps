@@ -8,6 +8,7 @@ import { useToolStore } from '../stores/tool-store';
 import { useClipboardStore } from '@/stores/clipboard-store';
 import { useUVEditorStore } from '@/stores/uv-editor-store';
 import { useGeometryStore } from '@/stores/geometry-store';
+import { useFloorPlanStore } from '@/stores/floor-plan-store';
 
 interface ShortcutConfig {
   key: string;
@@ -464,6 +465,10 @@ export const ShortcutProvider: React.FC<ShortcutProviderProps> = ({ children }) 
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
+    if (useFloorPlanStore.getState().open) {
+      return;
+    }
+
     const target = event.target as HTMLElement;
     
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === 'true') {

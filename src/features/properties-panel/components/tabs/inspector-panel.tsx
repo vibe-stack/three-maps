@@ -18,6 +18,7 @@ import { useTerrainStore } from '@/stores/terrain-store';
 import { TerrainSection } from '../terrain-section';
 import { getSuggestedFilename } from '@/stores/files-store';
 import { useFloorPlanStore } from '@/stores/floor-plan-store';
+import { useGeometryStore } from '@/stores/geometry-store';
 
 const Label: React.FC<{ label: string } & React.HTMLAttributes<HTMLDivElement>> = ({ label, children, className = '', ...rest }) => (
   <div className={`text-xs text-gray-400 ${className}`} {...rest}>
@@ -42,6 +43,79 @@ export const InspectorPanel: React.FC = () => {
   const openFloorPlanEditor = useFloorPlanStore((s) => s.openEditor);
   const closeFloorPlanEditor = useFloorPlanStore((s) => s.closeEditor);
   const updateFloorPlan = useFloorPlanStore((s) => s.updatePlan);
+  const [floorPlanRoomHeight, setFloorPlanRoomHeight] = React.useState(2.8);
+
+  const generate3DFromFloorPlan = React.useCallback((objectId: string, roomHeight: number) => {
+    const plan = useFloorPlanStore.getState().plans[objectId];
+    if (!plan) return;
+    const h = Math.max(0.5, roomHeight);
+    const sceneState = useSceneStore.getState();
+    const created: string[] = [];
+
+    const placeCube = (name: string, x: number, z: number, sx: number, sy: number, sz: number, rotY = 0) => {
+      const meshId = useGeometryStore.getState().createCube(1);
+      const objId = sceneState.createMeshObject(name, meshId);
+      sceneState.setTransform(objId, {
+        position: { x, y: sy * 0.5, z },
+        rotation: { x: 0, y: rotY, z: 0 },
+        scale: { x: Math.max(0.01, sx), y: Math.max(0.01, sy), z: Math.max(0.01, sz) },
+      });
+      created.push(objId);
+    };
+
+    for (const el of plan.elements) {
+      if (el.type === 'text') continue;
+
+      if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
+        const dx = el.x2 - el.x;
+        const dz = el.y2 - el.y;
+        const length = Math.max(0.01, Math.hypot(dx, dz));
+        const midX = (el.x + el.x2) * 0.5;
+        const midZ = (el.y + el.y2) * 0.5;
+        const yaw = Math.atan2(dz, dx);
+
+        if (el.type === 'wall') {
+          placeCube('Wall', midX, midZ, length, h, 0.14, yaw);
+        } else if (el.type === 'door') {
+          placeCube('Door Marker', midX, midZ, Math.max(0.5, length), Math.min(2.2, h * 0.78), 0.12, yaw);
+        } else if (el.type === 'window') {
+          placeCube('Window Marker', midX, midZ, Math.max(0.5, length), Math.min(1.2, h * 0.4), 0.1, yaw);
+        } else if (el.type === 'arch') {
+          placeCube('Arch Marker', midX, midZ, Math.max(0.5, length), Math.min(2.5, h * 0.9), 0.16, yaw);
+        }
+        continue;
+      }
+
+      if (el.type === 'pillar-circle') {
+        const r = Math.max(0.05, Math.max(el.width, el.height) * 0.5);
+        const meshId = useGeometryStore.getState().createCylinder(r, r, h, 18, 1);
+        const objId = sceneState.createMeshObject('Pillar', meshId);
+        sceneState.setTransform(objId, {
+          position: { x: el.x, y: h * 0.5, z: el.y },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+        });
+        created.push(objId);
+        continue;
+      }
+
+      const width = Math.max(0.05, el.width);
+      const depth = Math.max(0.05, el.height);
+      const yaw = el.rotation;
+
+      if (el.type === 'pillar-rect') {
+        placeCube('Pillar', el.x, el.y, width, h, depth, yaw);
+      } else if (el.type === 'stairs' || el.type === 'stairs-closed') {
+        placeCube('Stairs Guess', el.x, el.y, width, Math.max(0.2, h * 0.35), depth, yaw);
+      } else if (el.type === 'slope') {
+        placeCube('Slope Guess', el.x, el.y, width, Math.max(0.2, h * 0.3), depth, yaw);
+      }
+    }
+
+    if (created.length > 0) {
+      sceneState.selectObject(created[0]);
+    }
+  }, []);
 
 
   if (!selected) {
@@ -222,6 +296,15 @@ export const InspectorPanel: React.FC = () => {
             <div className="text-[11px] text-gray-400 truncate">
               Texture: <span className="text-gray-200">{selectedFloorPlan.textureFileId ? (getSuggestedFilename(selectedFloorPlan.textureFileId) || selectedFloorPlan.textureFileId.slice(0, 8)) : 'Not saved yet'}</span>
             </div>
+            <Label label="Room Height">
+              <DragInput compact value={floorPlanRoomHeight} precision={2} step={0.1} min={0.5} onChange={(v) => setFloorPlanRoomHeight(Math.max(0.5, v))} />
+            </Label>
+            <button
+              className="w-full px-2 py-1 rounded border border-emerald-500/40 hover:bg-emerald-500/10 text-xs text-emerald-200"
+              onClick={() => generate3DFromFloorPlan(selected.id, floorPlanRoomHeight)}
+            >
+              Generate 3D From Floor Plan
+            </button>
             <button
               className="w-full px-2 py-1 rounded border border-white/10 hover:bg-white/10 text-xs"
               onClick={() => openFloorPlanEditor(selected.id)}
