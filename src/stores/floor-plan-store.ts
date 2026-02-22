@@ -38,8 +38,12 @@ export type FloorPlanResource = {
   objectId: string;
   meshId: string;
   name: string;
+  ghostObjectId: string | null;
+  ghostOpacity: number;
   planeWidth: number;
   planeHeight: number;
+  planeCenterX: number;
+  planeCenterY: number;
   gridSize: number;
   snapEnabled: boolean;
   elements: FloorPlanElement[];
@@ -99,8 +103,12 @@ export const useFloorPlanStore = create<FloorPlanStore>()(
         objectId,
         meshId,
         name,
+        ghostObjectId: null,
+        ghostOpacity: 0.35,
         planeWidth: 8,
         planeHeight: 8,
+        planeCenterX: 0,
+        planeCenterY: 0,
         gridSize: 0.5,
         snapEnabled: true,
         elements: [],
@@ -140,11 +148,36 @@ export const useFloorPlanStore = create<FloorPlanStore>()(
 
       try {
         const scene = useSceneStore.getState();
+        const geometry = useGeometryStore.getState();
         const obj = scene.objects[next.objectId];
         if (obj) {
-          const sx = Math.max(0.01, next.planeWidth / 8);
-          const sz = Math.max(0.01, next.planeHeight / 8);
+          let baseX = 8;
+          let baseZ = 8;
+          const meshId = obj.meshId;
+          const mesh = meshId ? geometry.meshes.get(meshId) : undefined;
+          if (mesh && mesh.vertices.length > 0) {
+            let minX = Number.POSITIVE_INFINITY;
+            let maxX = Number.NEGATIVE_INFINITY;
+            let minZ = Number.POSITIVE_INFINITY;
+            let maxZ = Number.NEGATIVE_INFINITY;
+            for (const vertex of mesh.vertices) {
+              minX = Math.min(minX, vertex.position.x);
+              maxX = Math.max(maxX, vertex.position.x);
+              minZ = Math.min(minZ, vertex.position.z);
+              maxZ = Math.max(maxZ, vertex.position.z);
+            }
+            baseX = Math.max(0.001, maxX - minX);
+            baseZ = Math.max(0.001, maxZ - minZ);
+          }
+
+          const sx = Math.max(0.01, next.planeWidth / baseX);
+          const sz = Math.max(0.01, next.planeHeight / baseZ);
           scene.setTransform(next.objectId, {
+            position: {
+              x: next.planeCenterX,
+              y: obj.transform.position.y,
+              z: next.planeCenterY,
+            },
             scale: {
               x: sx,
               y: obj.transform.scale.y,
@@ -209,8 +242,12 @@ export const useFloorPlanStore = create<FloorPlanStore>()(
           ...plan,
           objectId,
           elements: Array.isArray(plan.elements) ? plan.elements.map((e) => ({ ...e })) : [],
+          ghostObjectId: typeof (plan as any).ghostObjectId === 'string' ? (plan as any).ghostObjectId : null,
+          ghostOpacity: Number.isFinite((plan as any).ghostOpacity) ? Math.min(1, Math.max(0, (plan as any).ghostOpacity)) : 0.35,
           planeWidth: Number.isFinite((plan as any).planeWidth) ? Math.max(0.1, (plan as any).planeWidth) : 8,
           planeHeight: Number.isFinite((plan as any).planeHeight) ? Math.max(0.1, (plan as any).planeHeight) : 8,
+          planeCenterX: Number.isFinite((plan as any).planeCenterX) ? (plan as any).planeCenterX : 0,
+          planeCenterY: Number.isFinite((plan as any).planeCenterY) ? (plan as any).planeCenterY : 0,
           gridSize: Number.isFinite(plan.gridSize) ? Math.max(0.05, plan.gridSize) : 0.5,
           snapEnabled: plan.snapEnabled !== false,
           updatedAt: Number.isFinite(plan.updatedAt) ? plan.updatedAt : Date.now(),

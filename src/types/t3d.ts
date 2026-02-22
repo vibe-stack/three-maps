@@ -210,10 +210,14 @@ export interface T3DScene {
     name: string;
     planeWidth?: number;
     planeHeight?: number;
+    planeCenterX?: number;
+    planeCenterY?: number;
     gridSize: number;
     snapEnabled: boolean;
     textureFileId?: string;
     updatedAt: number;
+    ghostObjectId?: string | null;
+    ghostOpacity?: number;
     elements: Array<{
       id: string;
       type: 'wall' | 'door' | 'pillar-circle' | 'pillar-rect' | 'stairs' | 'stairs-closed' | 'slope' | 'arch' | 'window' | 'text';

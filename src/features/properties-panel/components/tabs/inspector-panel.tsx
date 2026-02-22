@@ -16,9 +16,96 @@ import { useTextStore, useTextResource } from '@/stores/text-store';
 import { useMetaballStore } from '@/stores/metaball-store';
 import { useTerrainStore } from '@/stores/terrain-store';
 import { TerrainSection } from '../terrain-section';
-import { getSuggestedFilename } from '@/stores/files-store';
+import { ensureFileIdForBlob, getSuggestedFilename } from '@/stores/files-store';
 import { useFloorPlanStore } from '@/stores/floor-plan-store';
 import { useGeometryStore } from '@/stores/geometry-store';
+import { createMeshFromGeometry } from '@/utils/geometry';
+import { buildArchGeometry, buildDoorGeometry, buildStairsGeometryWithOptions, buildWedgeGeometry, buildWindowGeometry } from '@/features/quick-brush/utils/brush-geometry';
+
+const GREYBOX_MATERIAL_ID = 'mat-greybox-shared';
+let greyboxTextureFileId: string | null = null;
+
+const makeGreyboxTextureBlob = async (): Promise<Blob | null> => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const bg = '#8b8f96';
+  const line = '#767a82';
+  const major = '#666a72';
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 256, 256);
+
+  for (let i = 0; i <= 16; i++) {
+    const p = i * 16;
+    ctx.strokeStyle = i % 4 === 0 ? major : line;
+    ctx.lineWidth = i % 4 === 0 ? 2 : 1;
+    ctx.beginPath();
+    ctx.moveTo(p, 0);
+    ctx.lineTo(p, 256);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, p);
+    ctx.lineTo(256, p);
+    ctx.stroke();
+  }
+
+  return await new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/png'));
+};
+
+const ensureGreyboxMaterial = async (): Promise<string> => {
+  const geometry = useGeometryStore.getState();
+
+  if (!greyboxTextureFileId) {
+    const blob = await makeGreyboxTextureBlob();
+    if (blob) {
+      greyboxTextureFileId = await ensureFileIdForBlob(blob, 'greybox-prototype.png');
+    }
+  }
+
+  if (!geometry.materials.has(GREYBOX_MATERIAL_ID)) {
+    geometry.addMaterial({
+      id: GREYBOX_MATERIAL_ID,
+      name: 'Greybox',
+      color: { x: 0.88, y: 0.88, z: 0.9 },
+      roughness: 0.95,
+      metalness: 0,
+      emissive: { x: 0, y: 0, z: 0 },
+      emissiveIntensity: 1,
+    });
+  }
+
+  if (greyboxTextureFileId) {
+    geometry.setShaderGraph(GREYBOX_MATERIAL_ID, {
+      materialId: GREYBOX_MATERIAL_ID,
+      nodes: [
+        { id: 'out', type: 'output-standard', position: { x: 760, y: 160 }, hidden: false, data: {} } as any,
+        { id: 'uv', type: 'uv', position: { x: 140, y: 120 }, hidden: false, data: {} } as any,
+        { id: 'sx', type: 'const-float', position: { x: 140, y: 220 }, hidden: false, data: { value: 2.5 } } as any,
+        { id: 'sy', type: 'const-float', position: { x: 140, y: 280 }, hidden: false, data: { value: 2.5 } } as any,
+        { id: 'sv', type: 'vec2', position: { x: 320, y: 250 }, hidden: false, data: {} } as any,
+        { id: 'uvs', type: 'uvScale', position: { x: 470, y: 140 }, hidden: false, data: {} } as any,
+        { id: 'tex', type: 'texture', position: { x: 620, y: 120 }, hidden: false, data: { fileId: greyboxTextureFileId, colorSpace: 'sRGB' } } as any,
+        { id: 'rough', type: 'const-float', position: { x: 620, y: 260 }, hidden: false, data: { value: 0.92 } } as any,
+        { id: 'metal', type: 'const-float', position: { x: 620, y: 320 }, hidden: false, data: { value: 0.0 } } as any,
+      ],
+      edges: [
+        { id: crypto.randomUUID(), source: 'sx', sourceHandle: 'out', target: 'sv', targetHandle: 'x' },
+        { id: crypto.randomUUID(), source: 'sy', sourceHandle: 'out', target: 'sv', targetHandle: 'y' },
+        { id: crypto.randomUUID(), source: 'uv', sourceHandle: 'out', target: 'uvs', targetHandle: 'uv' },
+        { id: crypto.randomUUID(), source: 'sv', sourceHandle: 'out', target: 'uvs', targetHandle: 'scale' },
+        { id: crypto.randomUUID(), source: 'uvs', sourceHandle: 'out', target: 'tex', targetHandle: 'uv' },
+        { id: crypto.randomUUID(), source: 'tex', sourceHandle: 'out', target: 'out', targetHandle: 'color' },
+        { id: crypto.randomUUID(), source: 'rough', sourceHandle: 'out', target: 'out', targetHandle: 'roughness' },
+        { id: crypto.randomUUID(), source: 'metal', sourceHandle: 'out', target: 'out', targetHandle: 'metalness' },
+      ],
+    } as any);
+  }
+
+  return GREYBOX_MATERIAL_ID;
+};
 
 const Label: React.FC<{ label: string } & React.HTMLAttributes<HTMLDivElement>> = ({ label, children, className = '', ...rest }) => (
   <div className={`text-xs text-gray-400 ${className}`} {...rest}>
@@ -45,21 +132,58 @@ export const InspectorPanel: React.FC = () => {
   const updateFloorPlan = useFloorPlanStore((s) => s.updatePlan);
   const [floorPlanRoomHeight, setFloorPlanRoomHeight] = React.useState(2.8);
 
-  const generate3DFromFloorPlan = React.useCallback((objectId: string, roomHeight: number) => {
+  const generate3DFromFloorPlan = React.useCallback(async (objectId: string, roomHeight: number) => {
     const plan = useFloorPlanStore.getState().plans[objectId];
     if (!plan) return;
     const h = Math.max(0.5, roomHeight);
     const sceneState = useSceneStore.getState();
+    const geometryState = useGeometryStore.getState();
+    const greyboxMatId = await ensureGreyboxMaterial();
     const created: string[] = [];
+
+    const floorObject = sceneState.objects[objectId];
+    const baseY = floorObject?.transform.position.y ?? 0;
+
+    const groupId = sceneState.createGroupObject('Generated Room');
+    sceneState.setTransform(groupId, {
+      position: { x: 0, y: baseY + h * 0.5, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    });
+
+    const placeGeometry = (
+      name: string,
+      geometry: { vertices: any[]; faces: any[] },
+      position: { x: number; y: number; z: number },
+      yaw = 0,
+    ) => {
+      const mesh = createMeshFromGeometry(name, geometry.vertices as any, geometry.faces as any);
+      geometryState.addMesh(mesh);
+      geometryState.updateMesh(mesh.id, (m) => {
+        m.materialId = greyboxMatId;
+      });
+      const objId = sceneState.createMeshObject(name, mesh.id);
+      sceneState.setTransform(objId, {
+        position,
+        rotation: { x: 0, y: yaw, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+      });
+      sceneState.setParent(objId, groupId);
+      created.push(objId);
+    };
 
     const placeCube = (name: string, x: number, z: number, sx: number, sy: number, sz: number, rotY = 0) => {
       const meshId = useGeometryStore.getState().createCube(1);
+      geometryState.updateMesh(meshId, (m) => {
+        m.materialId = greyboxMatId;
+      });
       const objId = sceneState.createMeshObject(name, meshId);
       sceneState.setTransform(objId, {
-        position: { x, y: sy * 0.5, z },
+        position: { x, y: sy * 0.5 - h * 0.5, z },
         rotation: { x: 0, y: rotY, z: 0 },
         scale: { x: Math.max(0.01, sx), y: Math.max(0.01, sy), z: Math.max(0.01, sz) },
       });
+      sceneState.setParent(objId, groupId);
       created.push(objId);
     };
 
@@ -72,16 +196,37 @@ export const InspectorPanel: React.FC = () => {
         const length = Math.max(0.01, Math.hypot(dx, dz));
         const midX = (el.x + el.x2) * 0.5;
         const midZ = (el.y + el.y2) * 0.5;
-        const yaw = Math.atan2(dz, dx);
+        const yaw = -Math.atan2(dz, dx);
 
         if (el.type === 'wall') {
           placeCube('Wall', midX, midZ, length, h, 0.14, yaw);
         } else if (el.type === 'door') {
-          placeCube('Door Marker', midX, midZ, Math.max(0.5, length), Math.min(2.2, h * 0.78), 0.12, yaw);
+          const geom = buildDoorGeometry(
+            Math.max(0.5, length),
+            Math.min(2.2, h * 0.78),
+            0.12,
+            0.12,
+            0.72,
+          );
+          placeGeometry('Door', geom, { x: midX, y: -h * 0.5, z: midZ }, yaw);
         } else if (el.type === 'window') {
-          placeCube('Window Marker', midX, midZ, Math.max(0.5, length), Math.min(1.2, h * 0.4), 0.1, yaw);
+          const geom = buildWindowGeometry(
+            Math.max(0.5, length),
+            Math.min(1.5, h * 0.5),
+            0.1,
+            0.1,
+            0.75,
+            0.22,
+          );
+          placeGeometry('Window', geom, { x: midX, y: 0.8 - h * 0.5, z: midZ }, yaw);
         } else if (el.type === 'arch') {
-          placeCube('Arch Marker', midX, midZ, Math.max(0.5, length), Math.min(2.5, h * 0.9), 0.16, yaw);
+          const geom = buildArchGeometry(
+            Math.max(0.5, length),
+            Math.min(2.5, h * 0.9),
+            0.16,
+            16,
+          );
+          placeGeometry('Arch', geom, { x: midX, y: -h * 0.5, z: midZ }, yaw);
         }
         continue;
       }
@@ -89,31 +234,46 @@ export const InspectorPanel: React.FC = () => {
       if (el.type === 'pillar-circle') {
         const r = Math.max(0.05, Math.max(el.width, el.height) * 0.5);
         const meshId = useGeometryStore.getState().createCylinder(r, r, h, 18, 1);
+        geometryState.updateMesh(meshId, (m) => {
+          m.materialId = greyboxMatId;
+        });
         const objId = sceneState.createMeshObject('Pillar', meshId);
         sceneState.setTransform(objId, {
-          position: { x: el.x, y: h * 0.5, z: el.y },
+          position: { x: el.x, y: 0, z: el.y },
           rotation: { x: 0, y: 0, z: 0 },
           scale: { x: 1, y: 1, z: 1 },
         });
+        sceneState.setParent(objId, groupId);
         created.push(objId);
         continue;
       }
 
       const width = Math.max(0.05, el.width);
       const depth = Math.max(0.05, el.height);
-      const yaw = el.rotation;
+      const yaw = -el.rotation;
 
       if (el.type === 'pillar-rect') {
         placeCube('Pillar', el.x, el.y, width, h, depth, yaw);
       } else if (el.type === 'stairs' || el.type === 'stairs-closed') {
-        placeCube('Stairs Guess', el.x, el.y, width, Math.max(0.2, h * 0.35), depth, yaw);
+        const geom = buildStairsGeometryWithOptions(
+          width,
+          Math.max(0.2, h * 0.35),
+          depth,
+          8,
+          el.type === 'stairs-closed',
+          0,
+        );
+        placeGeometry(el.type === 'stairs-closed' ? 'Closed Stairs' : 'Stairs', geom, { x: el.x, y: -h * 0.5, z: el.y }, yaw);
       } else if (el.type === 'slope') {
-        placeCube('Slope Guess', el.x, el.y, width, Math.max(0.2, h * 0.3), depth, yaw);
+        const geom = buildWedgeGeometry(width, Math.max(0.2, h * 0.3), depth);
+        placeGeometry('Slope', geom, { x: el.x, y: -h * 0.5, z: el.y }, yaw);
       }
     }
 
     if (created.length > 0) {
       sceneState.selectObject(created[0]);
+    } else {
+      sceneState.selectObject(groupId);
     }
   }, []);
 

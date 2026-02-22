@@ -240,6 +240,65 @@ export function buildDoorGeometry(
   return { vertices, faces };
 }
 
+// ---------- Window Frame ----------
+// Similar to door frame but includes a bottom frame bar (sill) so opening is enclosed.
+// Origin at bottom-center.
+export function buildWindowGeometry(
+  width: number,
+  height: number,
+  depth: number,
+  wallThickness: number = 0.15,
+  openingRatio: number = 0.6,
+  sillRatio: number = 0.2,
+): BuiltGeometry {
+  const hw = width / 2;
+  const t = Math.min(wallThickness, width * 0.3);
+  const topBarH = Math.max(height * 0.1, 0.08);
+  const bottomBarH = Math.max(height * Math.max(0.08, Math.min(0.45, sillRatio)), 0.08);
+  const maxOpeningHalf = Math.max(0.01, hw - t);
+  const openingHW = Math.max(0.01, Math.min(maxOpeningHalf, (width * Math.min(0.9, Math.max(0.15, openingRatio))) / 2));
+
+  const vertices: ReturnType<typeof createVertex>[] = [];
+  const faces: ReturnType<typeof createFace>[] = [];
+
+  function addBox(
+    x0: number, x1: number,
+    y0: number, y1: number,
+    z0: number, z1: number
+  ) {
+    const v = [
+      createVertex(vec3(x0, y0, z0)),
+      createVertex(vec3(x1, y0, z0)),
+      createVertex(vec3(x0, y0, z1)),
+      createVertex(vec3(x1, y0, z1)),
+      createVertex(vec3(x0, y1, z0)),
+      createVertex(vec3(x1, y1, z0)),
+      createVertex(vec3(x0, y1, z1)),
+      createVertex(vec3(x1, y1, z1)),
+    ];
+    vertices.push(...v);
+    const [bfl, bfr, bbl, bbr, tfl, tfr, tbl, tbr] = v;
+    faces.push(createFace([bfl.id, bbl.id, bbr.id, bfr.id]));
+    faces.push(createFace([tfl.id, tfr.id, tbr.id, tbl.id]));
+    faces.push(createFace([bfl.id, bfr.id, tfr.id, tfl.id]));
+    faces.push(createFace([bbl.id, tbl.id, tbr.id, bbr.id]));
+    faces.push(createFace([bfl.id, tfl.id, tbl.id, bbl.id]));
+    faces.push(createFace([bfr.id, bbr.id, tbr.id, tfr.id]));
+  }
+
+  const hd = depth / 2;
+
+  // Left and right frame sides
+  addBox(-hw, -openingHW, 0, height, -hd, hd);
+  addBox(openingHW, hw, 0, height, -hd, hd);
+  // Top bar
+  addBox(-openingHW, openingHW, Math.max(bottomBarH, height - topBarH), height, -hd, hd);
+  // Bottom bar (sill)
+  addBox(-openingHW, openingHW, 0, bottomBarH, -hd, hd);
+
+  return { vertices, faces };
+}
+
 // ---------- Arch ----------
 // Two pillars + semicircular arch top.
 // Origin at bottom-center.

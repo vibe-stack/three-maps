@@ -38,6 +38,7 @@ type DragCreate = {
 };
 
 type PendingText = {
+  id: string;
   position: Vec2;
   value: string;
 };
@@ -140,7 +141,7 @@ const drawMeasure = (
 
 const computePlanBounds = (elements: FloorPlanElement[]) => {
   if (!elements.length) {
-    return { minX: -4, maxX: 4, minY: -4, maxY: 4, width: 8, height: 8 };
+    return { minX: -4, maxX: 4, minY: -4, maxY: 4, width: 8, height: 8, centerX: 0, centerY: 0 };
   }
   let minX = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
@@ -149,10 +150,6 @@ const computePlanBounds = (elements: FloorPlanElement[]) => {
 
   for (const el of elements) {
     if (el.type === 'text') {
-      minX = Math.min(minX, el.x - 0.5);
-      maxX = Math.max(maxX, el.x + 0.5);
-      minY = Math.min(minY, el.y - 0.2);
-      maxY = Math.max(maxY, el.y + 0.2);
       continue;
     }
     if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
@@ -170,7 +167,107 @@ const computePlanBounds = (elements: FloorPlanElement[]) => {
 
   const width = Math.max(0.1, maxX - minX);
   const height = Math.max(0.1, maxY - minY);
-  return { minX, maxX, minY, maxY, width, height };
+  const centerX = (minX + maxX) * 0.5;
+  const centerY = (minY + maxY) * 0.5;
+  return { minX, maxX, minY, maxY, width, height, centerX, centerY };
+};
+
+const drawPlanElement = (
+  ctx: CanvasRenderingContext2D,
+  el: FloorPlanElement,
+  worldToScreen: (p: Vec2) => Vec2,
+  zoom: number,
+  selected = false,
+  withMeasures = false,
+) => {
+  ctx.save();
+  ctx.strokeStyle = selected ? '#f59e0b' : strokeForType(el.type);
+  ctx.fillStyle = selected ? '#f59e0b' : strokeForType(el.type);
+  ctx.lineWidth = selected ? 2 : 1.5;
+
+  if (el.type === 'text') {
+    const p = worldToScreen({ x: el.x, y: el.y });
+    ctx.font = `${Math.max(12, el.height * zoom * 0.75)}px ui-sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(el.text || '', p.x, p.y);
+    ctx.restore();
+    return;
+  }
+
+  if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
+    const a = worldToScreen({ x: el.x, y: el.y });
+    const b = worldToScreen({ x: el.x2, y: el.y2 });
+    ctx.lineWidth = Math.max(1.5, el.height * zoom * 0.6);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    if (withMeasures) drawMeasure(ctx, a, b, `${Math.hypot(el.x2 - el.x, el.y2 - el.y).toFixed(2)}m`);
+    ctx.restore();
+    return;
+  }
+
+  const c = worldToScreen({ x: el.x, y: el.y });
+  ctx.translate(c.x, c.y);
+  ctx.rotate(el.rotation);
+  const w = el.width * zoom;
+  const h = el.height * zoom;
+  if (el.shape === 'circle') {
+    ctx.beginPath();
+    ctx.ellipse(0, 0, Math.abs(w * 0.5), Math.abs(h * 0.5), 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  ctx.strokeRect(-w * 0.5, -h * 0.5, w, h);
+  if (el.type === 'stairs' || el.type === 'stairs-closed') {
+    const steps = 6;
+    for (let i = 1; i < steps; i++) {
+      const y = -h * 0.5 + (i / steps) * h;
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.5, y);
+      ctx.lineTo(w * 0.5, y);
+      ctx.stroke();
+    }
+    if (el.type === 'stairs-closed') {
+      ctx.beginPath();
+      ctx.moveTo(0, -h * 0.5);
+      ctx.lineTo(0, h * 0.5);
+      ctx.stroke();
+    }
+  }
+  if (el.type === 'slope') {
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.5, h * 0.5);
+    ctx.lineTo(w * 0.5, -h * 0.5);
+    ctx.stroke();
+  }
+
+  // Direction arrows: stairs ascend toward +local Y (down on screen), slope ascends toward -local Y (up on screen)
+  const dir = el.type === 'slope' ? -1 : 1;
+  if (el.type === 'stairs' || el.type === 'stairs-closed' || el.type === 'slope') {
+    const y0 = -dir * h * 0.22;
+    const y1 = dir * h * 0.22;
+    ctx.beginPath();
+    ctx.moveTo(0, y0);
+    ctx.lineTo(0, y1);
+    ctx.lineTo(-w * 0.08, y1 - dir * h * 0.08);
+    ctx.moveTo(0, y1);
+    ctx.lineTo(w * 0.08, y1 - dir * h * 0.08);
+    ctx.stroke();
+  }
+
+  if (withMeasures) {
+    drawMeasure(
+      ctx,
+      { x: -w * 0.5, y: h * 0.6 },
+      { x: w * 0.5, y: h * 0.6 },
+      `${el.width.toFixed(2)}m`
+    );
+  }
+  ctx.restore();
 };
 
 const serializeDraft = (draft: NonNullable<ReturnType<typeof useFloorPlanStore.getState>['draft']>) => JSON.stringify({
@@ -178,6 +275,8 @@ const serializeDraft = (draft: NonNullable<ReturnType<typeof useFloorPlanStore.g
   snapEnabled: draft.snapEnabled,
   planeWidth: draft.planeWidth,
   planeHeight: draft.planeHeight,
+  planeCenterX: draft.planeCenterX,
+  planeCenterY: draft.planeCenterY,
   elements: draft.elements,
 });
 
@@ -191,41 +290,12 @@ const renderTexture = async (elements: FloorPlanElement[]): Promise<Blob | null>
   ctx.fillStyle = '#0b0e13';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  let minX = -10;
-  let maxX = 10;
-  let minY = -10;
-  let maxY = 10;
-
-  if (elements.length > 0) {
-    minX = Number.POSITIVE_INFINITY;
-    maxX = Number.NEGATIVE_INFINITY;
-    minY = Number.POSITIVE_INFINITY;
-    maxY = Number.NEGATIVE_INFINITY;
-    for (const el of elements) {
-      if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
-        minX = Math.min(minX, el.x, el.x2);
-        maxX = Math.max(maxX, el.x, el.x2);
-        minY = Math.min(minY, el.y, el.y2);
-        maxY = Math.max(maxY, el.y, el.y2);
-      } else {
-        minX = Math.min(minX, el.x - el.width * 0.5);
-        maxX = Math.max(maxX, el.x + el.width * 0.5);
-        minY = Math.min(minY, el.y - el.height * 0.5);
-        maxY = Math.max(maxY, el.y + el.height * 0.5);
-      }
-    }
-    const pad = 2;
-    minX -= pad;
-    maxX += pad;
-    minY -= pad;
-    maxY += pad;
-  }
-
-  const spanX = Math.max(1, maxX - minX);
-  const spanY = Math.max(1, maxY - minY);
-  const scale = Math.min(canvas.width / spanX, canvas.height / spanY) * 0.92;
-  const ox = canvas.width * 0.5 - ((minX + maxX) * 0.5) * scale;
-  const oy = canvas.height * 0.5 - ((minY + maxY) * 0.5) * scale;
+  const bounds = computePlanBounds(elements);
+  const spanX = Math.max(1, bounds.width);
+  const spanY = Math.max(1, bounds.height);
+  const scale = Math.min(canvas.width / spanX, canvas.height / spanY);
+  const ox = canvas.width * 0.5 - bounds.centerX * scale;
+  const oy = canvas.height * 0.5 - bounds.centerY * scale;
 
   const toPx = (p: Vec2): Vec2 => ({ x: ox + p.x * scale, y: oy + p.y * scale });
 
@@ -300,6 +370,18 @@ const renderTexture = async (elements: FloorPlanElement[]): Promise<Blob | null>
         ctx.lineTo(w * 0.5, -h * 0.5);
         ctx.stroke();
       }
+      const dir = el.type === 'slope' ? -1 : 1;
+      if (el.type === 'stairs' || el.type === 'stairs-closed' || el.type === 'slope') {
+        const y0 = -dir * h * 0.22;
+        const y1 = dir * h * 0.22;
+        ctx.beginPath();
+        ctx.moveTo(0, y0);
+        ctx.lineTo(0, y1);
+        ctx.lineTo(-w * 0.08, y1 - dir * h * 0.08);
+        ctx.moveTo(0, y1);
+        ctx.lineTo(w * 0.08, y1 - dir * h * 0.08);
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }
@@ -313,6 +395,7 @@ const FloorPlanEditor: React.FC = () => {
   const updateDraft = useFloorPlanStore((s) => s.updateDraft);
   const cancelDraft = useFloorPlanStore((s) => s.cancelDraft);
   const saveDraft = useFloorPlanStore((s) => s.saveDraft);
+  const plans = useFloorPlanStore((s) => s.plans);
 
   const [tool, setTool] = React.useState<FloorPlanTool>('select');
   const [pan, setPan] = React.useState<Vec2>({ x: 0, y: 0 });
@@ -356,6 +439,16 @@ const FloorPlanEditor: React.FC = () => {
   const hasUnsavedChanges = !!(draft && initialDraftSnapshotRef.current && serializeDraft(draft) !== initialDraftSnapshotRef.current);
 
   const elements = draft?.elements ?? [];
+  const ghostPlan = draft?.ghostObjectId ? plans[draft.ghostObjectId] : null;
+
+  React.useEffect(() => {
+    if (!draft?.ghostObjectId) return;
+    if (!plans[draft.ghostObjectId]) {
+      updateDraft((d) => {
+        d.ghostObjectId = null;
+      });
+    }
+  }, [draft?.ghostObjectId, plans, updateDraft]);
 
   const worldToScreen = React.useCallback((p: Vec2): Vec2 => ({
     x: viewSize.w * 0.5 + pan.x + p.x * zoom,
@@ -446,7 +539,7 @@ const FloorPlanEditor: React.FC = () => {
     if (!pendingText) return;
     textInputRef.current?.focus();
     textInputRef.current?.select();
-  }, [pendingText]);
+  }, [pendingText?.id]);
 
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -651,75 +744,17 @@ const FloorPlanEditor: React.FC = () => {
     ctx.lineTo(originX, viewSize.h);
     ctx.stroke();
 
-    for (const el of elements) {
-      const selected = selection.has(el.id);
+    if (ghostPlan && draft.ghostOpacity > 0) {
       ctx.save();
-      ctx.strokeStyle = selected ? '#f59e0b' : strokeForType(el.type);
-      ctx.fillStyle = selected ? '#f59e0b' : strokeForType(el.type);
-      ctx.lineWidth = selected ? 2 : 1.5;
-
-      if (el.type === 'text') {
-        const p = worldToScreen({ x: el.x, y: el.y });
-        ctx.font = `${Math.max(12, el.height * zoom * 0.75)}px ui-sans-serif`;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'alphabetic';
-        ctx.fillText(el.text || '', p.x, p.y);
-        ctx.restore();
-        continue;
-      }
-
-      if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
-        const a = worldToScreen({ x: el.x, y: el.y });
-        const b = worldToScreen({ x: el.x2, y: el.y2 });
-        ctx.lineWidth = Math.max(1.5, el.height * zoom * 0.6);
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-        drawMeasure(ctx, a, b, `${Math.hypot(el.x2 - el.x, el.y2 - el.y).toFixed(2)}m`);
-      } else {
-        const c = worldToScreen({ x: el.x, y: el.y });
-        ctx.translate(c.x, c.y);
-        ctx.rotate(el.rotation);
-        const w = el.width * zoom;
-        const h = el.height * zoom;
-        if (el.shape === 'circle') {
-          ctx.beginPath();
-          ctx.ellipse(0, 0, Math.abs(w * 0.5), Math.abs(h * 0.5), 0, 0, Math.PI * 2);
-          ctx.stroke();
-        } else {
-          ctx.strokeRect(-w * 0.5, -h * 0.5, w, h);
-          if (el.type === 'stairs' || el.type === 'stairs-closed') {
-            const steps = 6;
-            for (let i = 1; i < steps; i++) {
-              const y = -h * 0.5 + (i / steps) * h;
-              ctx.beginPath();
-              ctx.moveTo(-w * 0.5, y);
-              ctx.lineTo(w * 0.5, y);
-              ctx.stroke();
-            }
-            if (el.type === 'stairs-closed') {
-              ctx.beginPath();
-              ctx.moveTo(0, -h * 0.5);
-              ctx.lineTo(0, h * 0.5);
-              ctx.stroke();
-            }
-          }
-          if (el.type === 'slope') {
-            ctx.beginPath();
-            ctx.moveTo(-w * 0.5, h * 0.5);
-            ctx.lineTo(w * 0.5, -h * 0.5);
-            ctx.stroke();
-          }
-          drawMeasure(
-            ctx,
-            { x: -w * 0.5, y: h * 0.6 },
-            { x: w * 0.5, y: h * 0.6 },
-            `${el.width.toFixed(2)}m`
-          );
-        }
+      ctx.globalAlpha = Math.min(1, Math.max(0, draft.ghostOpacity));
+      for (const el of ghostPlan.elements) {
+        drawPlanElement(ctx, el, worldToScreen, zoom, false, false);
       }
       ctx.restore();
+    }
+
+    for (const el of elements) {
+      drawPlanElement(ctx, el, worldToScreen, zoom, selection.has(el.id), true);
     }
 
     if (dragCreate) {
@@ -828,7 +863,7 @@ const FloorPlanEditor: React.FC = () => {
         ctx.fillText(world, 2, y - 2);
       }
     }
-  }, [open, draft, elements, pan.x, pan.y, zoom, selection, worldToScreen, dragCreate, wallChain, wallPreview, viewSize.w, viewSize.h]);
+  }, [open, draft, elements, ghostPlan, pan.x, pan.y, zoom, selection, worldToScreen, dragCreate, wallChain, wallPreview, viewSize.w, viewSize.h]);
 
   const pointerPos = (event: React.PointerEvent<HTMLCanvasElement>): Vec2 => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -857,7 +892,7 @@ const FloorPlanEditor: React.FC = () => {
     }
 
     if (tool === 'text') {
-      setPendingText({ position: world, value: '' });
+      setPendingText({ id: crypto.randomUUID(), position: world, value: '' });
       return;
     }
 
@@ -1103,6 +1138,8 @@ const FloorPlanEditor: React.FC = () => {
     updateDraft((d) => {
       d.planeWidth = bounds.width;
       d.planeHeight = bounds.height;
+      d.planeCenterX = bounds.centerX;
+      d.planeCenterY = bounds.centerY;
     });
 
     const blob = await renderTexture(draft.elements);
@@ -1206,6 +1243,40 @@ const FloorPlanEditor: React.FC = () => {
             <button className="px-2 py-1 rounded text-xs border border-emerald-400/60 bg-emerald-400/20 text-emerald-100 hover:bg-emerald-400/30 flex items-center gap-1" onClick={handleSave}>
               <Save className="w-3.5 h-3.5" /> Save
             </button>
+          </div>
+        </div>
+
+        <div className="pointer-events-auto rounded-lg border border-white/10 bg-[#0f141b]/95 shadow-xl px-2 py-2 flex items-center gap-3 flex-wrap">
+          <div className="text-xs text-gray-300">Ghost Layer</div>
+          <select
+            className="bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-gray-200"
+            value={draft.ghostObjectId ?? ''}
+            onChange={(e) => {
+              const value = e.target.value || null;
+              updateDraft((d) => {
+                d.ghostObjectId = value;
+              });
+            }}
+          >
+            <option value="">None</option>
+            {Object.values(plans)
+              .filter((plan) => plan.objectId !== draft.objectId)
+              .map((plan) => (
+                <option key={plan.objectId} value={plan.objectId}>{plan.name || `Plan ${plan.objectId.slice(-4)}`}</option>
+              ))}
+          </select>
+
+          <div className="flex items-center gap-1 text-xs text-gray-300">
+            Opacity
+            <DragInput
+              compact
+              value={draft.ghostOpacity}
+              precision={2}
+              step={0.05}
+              min={0}
+              max={1}
+              onChange={(v) => updateDraft((d) => { d.ghostOpacity = Math.max(0, Math.min(1, v)); })}
+            />
           </div>
         </div>
 
