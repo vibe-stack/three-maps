@@ -23,6 +23,7 @@ import { useRegisterShortcuts } from '@/components/shortcut-provider';
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three/webgpu';
 import AddObjectMenu from '@/features/shared/add-object-menu';
 import { useTerrainStore } from '@/stores/terrain-store';
+import { useFloorPlanStore } from '@/stores/floor-plan-store';
 
 type Props = { onOpenShaderEditor?: () => void };
 const MenuBar: React.FC<Props> = ({ onOpenShaderEditor }) => {
@@ -39,6 +40,7 @@ const MenuBar: React.FC<Props> = ({ onOpenShaderEditor }) => {
 	const workspace = useWorkspaceStore();
 	const clipboard = useClipboardStore();
 	const setUVOpen = useUVEditorStore((s) => s.setOpen);
+	const floorPlans = useFloorPlanStore((s) => s.plans);
 
 	// Track undo/redo availability from zundo temporal API
 	const [canUndo, setCanUndo] = useState(false);
@@ -77,7 +79,8 @@ const MenuBar: React.FC<Props> = ({ onOpenShaderEditor }) => {
 		selectedObjectId: sceneStore.selectedObjectId,
 		lights: sceneStore.lights,
 		cameras: geometryStore.cameras,
-	}), [geometryStore, sceneStore, viewportStore]);
+		floorPlans,
+	}), [geometryStore, sceneStore, viewportStore, floorPlans]);
 
 	// Save (T3D) with existing handle when possible
 	const handleSave = useCallback(async () => {
@@ -148,6 +151,7 @@ const MenuBar: React.FC<Props> = ({ onOpenShaderEditor }) => {
 								Object.keys(useGeometryStore.getState().cameras).forEach((id) => useGeometryStore.getState().removeCamera(id));
 								Object.values(data.cameras).forEach((c: any) => useGeometryStore.getState().addCamera(c));
 							}
+							useFloorPlanStore.getState().hydratePlans((data as any).floorPlans ?? {});
 					if (data.viewport.showGrid !== viewportStore.showGrid) viewportStore.toggleGrid();
 					if (data.viewport.showAxes !== viewportStore.showAxes) viewportStore.toggleAxes();
 					// update workspace current file (cannot get real name without FS handle)
@@ -173,9 +177,10 @@ const MenuBar: React.FC<Props> = ({ onOpenShaderEditor }) => {
 		viewportStore.reset();
 		toolStore.reset();
 		shapeCreationStore.reset();
+		useFloorPlanStore.getState().reset();
 	}, [geometryStore, sceneStore, selectionStore, viewportStore, toolStore, shapeCreationStore]);
 
-	const beginShape = useCallback((shape: 'cube' | 'plane' | 'cylinder' | 'cone' | 'uvsphere' | 'icosphere' | 'torus') => {
+	const beginShape = useCallback((shape: 'cube' | 'plane' | 'cylinder' | 'cone' | 'uvsphere' | 'icosphere' | 'torus' | 'floorplan') => {
 		let id = '';
 		let name = '';
 		switch (shape) {
@@ -186,6 +191,14 @@ const MenuBar: React.FC<Props> = ({ onOpenShaderEditor }) => {
 			case 'uvsphere': id = geometryStore.createUVSphere(1, 24, 16); name = 'UV Sphere'; break;
 			case 'icosphere': id = geometryStore.createIcoSphere(1, 1); name = 'Ico Sphere'; break;
 			case 'torus': id = geometryStore.createTorus(1.2, 0.35, 16, 24); name = 'Torus'; break;
+			case 'floorplan': {
+				const objId = useFloorPlanStore.getState().createFloorPlanObject('Floor Plan');
+				sceneStore.selectObject(objId);
+				if (useSelectionStore.getState().selection.viewMode === 'object') {
+					useSelectionStore.getState().selectObjects([objId]);
+				}
+				return;
+			}
 		}
 		const objId = sceneStore.createMeshObject(`${name} ${id.slice(-4)}`, id);
 		sceneStore.selectObject(objId);

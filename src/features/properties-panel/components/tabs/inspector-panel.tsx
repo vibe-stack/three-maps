@@ -16,6 +16,8 @@ import { useTextStore, useTextResource } from '@/stores/text-store';
 import { useMetaballStore } from '@/stores/metaball-store';
 import { useTerrainStore } from '@/stores/terrain-store';
 import { TerrainSection } from '../terrain-section';
+import { getSuggestedFilename } from '@/stores/files-store';
+import { useFloorPlanStore } from '@/stores/floor-plan-store';
 
 const Label: React.FC<{ label: string } & React.HTMLAttributes<HTMLDivElement>> = ({ label, children, className = '', ...rest }) => (
   <div className={`text-xs text-gray-400 ${className}`} {...rest}>
@@ -34,11 +36,19 @@ export const InspectorPanel: React.FC = () => {
   const scene = useSceneStore();
   const activeClipId = useAnimationStore((s) => s.activeClipId);
   const terrains = useTerrainStore();
+  const floorPlans = useFloorPlanStore((s) => s.plans);
+  const floorPlanOpen = useFloorPlanStore((s) => s.open);
+  const floorPlanObjectId = useFloorPlanStore((s) => s.objectId);
+  const openFloorPlanEditor = useFloorPlanStore((s) => s.openEditor);
+  const closeFloorPlanEditor = useFloorPlanStore((s) => s.closeEditor);
+  const updateFloorPlan = useFloorPlanStore((s) => s.updatePlan);
 
 
   if (!selected) {
     return <div className="p-3 text-xs text-gray-500">No object selected.</div>;
   }
+
+  const selectedFloorPlan = floorPlans[selected.id];
 
   const updateTransform = (partial: Partial<typeof selected.transform>) => {
     scene.setTransform(selected.id, partial);
@@ -157,6 +167,66 @@ export const InspectorPanel: React.FC = () => {
               onClick={() => terrains.createTerrain({ name: 'Terrain' })}
             >
               Create Terrain
+            </button>
+          </div>
+        </div>
+      )}
+
+      {selectedFloorPlan && (
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Floor Plan</div>
+          <div className="bg-white/5 border border-white/10 rounded p-2 space-y-2">
+            <div className="flex items-center gap-2">
+              <button
+                className="px-2 py-1 rounded border border-white/10 hover:bg-white/10 text-xs"
+                onClick={() => openFloorPlanEditor(selected.id)}
+              >
+                Open Editor
+              </button>
+              <button
+                className="px-2 py-1 rounded border border-white/10 hover:bg-white/10 text-xs"
+                onClick={() => closeFloorPlanEditor()}
+                disabled={!floorPlanOpen || floorPlanObjectId !== selected.id}
+              >
+                Close Editor
+              </button>
+            </div>
+            <Label label="Grid Size">
+              <DragInput
+                compact
+                value={selectedFloorPlan.gridSize}
+                precision={2}
+                step={0.05}
+                min={0.05}
+                onChange={(v) => {
+                  updateFloorPlan(selected.id, (plan) => {
+                    plan.gridSize = Math.max(0.05, v);
+                  });
+                }}
+              />
+            </Label>
+            <Row>
+              <div className="w-20 text-gray-400 text-[11px]">Snap</div>
+              <Switch
+                checked={selectedFloorPlan.snapEnabled}
+                onCheckedChange={(v) => {
+                  updateFloorPlan(selected.id, (plan) => {
+                    plan.snapEnabled = v;
+                  });
+                }}
+              />
+            </Row>
+            <div className="text-[11px] text-gray-400">
+              Elements: <span className="text-gray-200">{selectedFloorPlan.elements.length}</span>
+            </div>
+            <div className="text-[11px] text-gray-400 truncate">
+              Texture: <span className="text-gray-200">{selectedFloorPlan.textureFileId ? (getSuggestedFilename(selectedFloorPlan.textureFileId) || selectedFloorPlan.textureFileId.slice(0, 8)) : 'Not saved yet'}</span>
+            </div>
+            <button
+              className="w-full px-2 py-1 rounded border border-white/10 hover:bg-white/10 text-xs"
+              onClick={() => openFloorPlanEditor(selected.id)}
+            >
+              Open Floor Plan Editor
             </button>
           </div>
         </div>

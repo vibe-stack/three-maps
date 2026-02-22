@@ -148,6 +148,10 @@ export const useSceneStore = create<SceneStore>()(
                   useMetaballStore.getState().removeMetaball((obj as any).metaballId);
                 } catch { }
               }
+              try {
+                const { useFloorPlanStore } = require('./floor-plan-store');
+                useFloorPlanStore.getState().removeByObjectId(id);
+              } catch { }
               obj.children.forEach((childId: string) => removeRecursive(childId));
               delete state.objects[id];
             }

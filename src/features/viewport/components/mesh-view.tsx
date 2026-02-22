@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useRef } from 'react';
-import { Raycaster, Intersection, Mesh } from 'three/webgpu';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Raycaster, Intersection, Mesh, MeshStandardMaterial, Texture } from 'three/webgpu';
 import useDisplayMesh from '../hooks/useDisplayMesh';
 import useGeometryAndMaterial from '../hooks/useGeometryAndMaterial';
 import { useViewportStore } from '@/stores/viewport-store';
@@ -11,6 +11,8 @@ import { useSelectionStore, useViewMode } from '@/stores/selection-store';
 import { useToolStore } from '@/stores/tool-store';
 import { useObjectModifiers } from '@/stores/modifier-store';
 import useShaderMaterialRenderer from './use-shader-material-renderer';
+import { useFloorPlanStore } from '@/stores/floor-plan-store';
+import { getOrCreateDownloadUrl } from '@/stores/files-store';
 
 type Props = { objectId: string; noTransform?: boolean };
 
@@ -28,11 +30,57 @@ const MeshView: React.FC<Props> = ({ objectId, noTransform = false }) => {
   const isLocked = !!obj?.locked;
   const modifiers = useObjectModifiers(objectId);
   const displayMesh = useDisplayMesh({ mesh, modifiers, viewMode, editMeshId, objMeshId: obj?.meshId });
+  const floorPlan = useFloorPlanStore((s) => s.plans[objectId]);
 
   const geomAndMat = useGeometryAndMaterial({ displayMesh, shading, isSelected, materials: geometryStore.materials });
 
   // Material renderer hook returns the final material (node material preferred)
   const activeMaterial = useShaderMaterialRenderer({ displayMesh, shading, isSelected, materials: geometryStore.materials });
+  const [floorTexture, setFloorTexture] = useState<Texture | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    const textureFileId = floorPlan?.textureFileId;
+    if (!textureFileId) {
+      setFloorTexture((old) => {
+        old?.dispose?.();
+        return null;
+      });
+      return;
+    }
+
+    const url = getOrCreateDownloadUrl(textureFileId);
+    if (!url) return;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (disposed) return;
+      const tex = new Texture(img);
+      tex.needsUpdate = true;
+      tex.flipY = false;
+      setFloorTexture((old) => {
+        old?.dispose?.();
+        return tex;
+      });
+    };
+    img.src = url;
+
+    return () => {
+      disposed = true;
+    };
+  }, [floorPlan?.textureFileId]);
+
+  const floorPlanMaterial = useMemo(() => {
+    if (!floorTexture) return null;
+    const mat = new MeshStandardMaterial({ map: floorTexture, color: 0xffffff, roughness: 0.95, metalness: 0 });
+    return mat;
+  }, [floorTexture]);
+
+  useEffect(() => {
+    return () => {
+      floorPlanMaterial?.dispose?.();
+    };
+  }, [floorPlanMaterial]);
 
   // Track the pointer-down position to distinguish orbit/drag from a click
   const downRef = useRef<{ x: number; y: number; id: string } | null>(null);
@@ -98,7 +146,7 @@ const MeshView: React.FC<Props> = ({ objectId, noTransform = false }) => {
   const meshEl = (
     <mesh
       geometry={geomAndMat.geom}
-      material={activeMaterial}
+      material={floorPlanMaterial ?? activeMaterial}
       castShadow={!!displayMesh.castShadow}
       receiveShadow={!!displayMesh.receiveShadow}
       // Disable raycast when locked so clicks pass through

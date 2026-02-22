@@ -23,6 +23,7 @@ import { useForceFieldStore } from '@/stores/force-field-store';
 import { useFluidStore } from '@/stores/fluid-store';
 import { useGeometryStore } from '@/stores/geometry-store';
 import { listAllFiles, getSuggestedFilename } from '@/stores/files-store';
+import { FloorPlanResource } from '@/stores/floor-plan-store';
 
 /**
  * Converts internal Vector3 to T3D format
@@ -192,6 +193,7 @@ export interface WorkspaceData {
   selectedObjectId: string | null;
   lights?: Record<string, Light>;
   cameras?: Record<string, CameraResource>;
+  floorPlans?: Record<string, FloorPlanResource>;
 }
 // Note: Three export path has its own input type; no additional types needed here.
 
@@ -272,6 +274,9 @@ export async function exportToT3D(
   }
   if (workspaceData.cameras && Object.keys(workspaceData.cameras).length > 0) {
     t3dScene.cameras = Object.values(workspaceData.cameras).map((c) => cameraResToT3D(c));
+  }
+  if (workspaceData.floorPlans && Object.keys(workspaceData.floorPlans).length > 0) {
+    (t3dScene as any).floorPlans = workspaceData.floorPlans;
   }
 
   // Optional particle systems payload (editor extension only)

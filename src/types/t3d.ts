@@ -203,6 +203,29 @@ export interface T3DScene {
     timelinePanelOpen?: boolean;
     lastUsedFps?: number;
   };
+  floorPlans?: Record<string, {
+    id: string;
+    objectId: string;
+    meshId: string;
+    name: string;
+    gridSize: number;
+    snapEnabled: boolean;
+    textureFileId?: string;
+    updatedAt: number;
+    elements: Array<{
+      id: string;
+      type: 'wall' | 'door' | 'pillar-circle' | 'pillar-rect' | 'stairs' | 'stairs-closed' | 'slope' | 'arch' | 'window' | 'text';
+      shape: 'line' | 'rect' | 'circle';
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      rotation: number;
+      x2?: number;
+      y2?: number;
+      text?: string;
+    }>;
+  }>;
 }
 
 export interface T3DExportFilter {

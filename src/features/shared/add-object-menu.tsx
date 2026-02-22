@@ -3,7 +3,7 @@
 import React from 'react';
 import { Menu } from '@base-ui-components/react/menu';
 
-type Shape = 'cube' | 'plane' | 'cylinder' | 'cone' | 'uvsphere' | 'icosphere' | 'torus';
+type Shape = 'cube' | 'plane' | 'cylinder' | 'cone' | 'uvsphere' | 'icosphere' | 'torus' | 'floorplan';
 
 type Props = {
   portalContainer?: HTMLElement | null;
@@ -69,6 +69,7 @@ const AddObjectMenu: React.FC<Props> = ({
                     <Menu.Item className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-gray-200" onClick={() => { onCreateShape('uvsphere'); closeIfControlled(); }}>UV Sphere</Menu.Item>
                     <Menu.Item className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-gray-200" onClick={() => { onCreateShape('icosphere'); closeIfControlled(); }}>Ico Sphere</Menu.Item>
                     <Menu.Item className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-gray-200" onClick={() => { onCreateShape('torus'); closeIfControlled(); }}>Torus</Menu.Item>
+                    <Menu.Item className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-gray-200" onClick={() => { onCreateShape('floorplan'); closeIfControlled(); }}>Floor Plan</Menu.Item>
                   </Menu.Popup>
                 </Menu.Positioner>
               </Menu.Portal>

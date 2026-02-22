@@ -28,6 +28,7 @@ import { useAnimationStore } from '@/stores/animation-store';
 import { useParticlesStore } from '@/stores/particles-store';
 import { useForceFieldStore } from '@/stores/force-field-store';
 import { registerFileWithId } from '@/stores/files-store';
+import { FloorPlanResource } from '@/stores/floor-plan-store';
 
 /**
  * Converts T3D Vector3 to internal format
@@ -173,6 +174,7 @@ export interface ImportedWorkspaceData {
   selectedObjectId: string | null;
   lights?: Record<string, any>;
   cameras?: Record<string, any>;
+  floorPlans?: Record<string, FloorPlanResource>;
   metadata: {
     version: string;
     created: string;
@@ -242,6 +244,7 @@ export async function importFromT3D(file: File): Promise<ImportedWorkspaceData> 
       selectedObjectId: t3dScene.selectedObjectId,
       lights: lightsRec,
       cameras: camsRec,
+      floorPlans: (t3dScene as any).floorPlans,
       metadata: {
         version: `${t3dScene.metadata.version.major}.${t3dScene.metadata.version.minor}.${t3dScene.metadata.version.patch}`,
         created: t3dScene.metadata.created,

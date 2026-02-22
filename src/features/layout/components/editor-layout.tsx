@@ -22,6 +22,7 @@ import { AnimatePresence } from "motion/react"
 import TerrainEditor from '@/features/terrain/components/terrain-editor'
 import { useTerrainEditorStore } from '@/stores/terrain-editor-store';
 import QuickBrushBar from '@/features/quick-brush/components/quick-brush-bar';
+import FloorPlanEditor from '@/features/floor-plan/components/floor-plan-editor';
 
 const EditorLayout: React.FC = () => {
   const shaderOpen = useShaderEditorStore((s) => s.open);
@@ -98,6 +99,7 @@ const EditorLayout: React.FC = () => {
           <UVEditor open={uvOpen} onOpenChange={setUVOpen} />
 
           <TerrainEditor open={useTerrainEditorStore((s) => s.open)} onOpenChange={() => { }} />
+          <FloorPlanEditor />
         </div>
       </div>
     </div>

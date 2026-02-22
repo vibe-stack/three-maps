@@ -9,6 +9,7 @@ import { useSceneStore } from '@/stores/scene-store';
 import { useGeometryStore } from '@/stores/geometry-store';
 import { useShapeCreationStore } from '@/stores/shape-creation-store';
 import { useToolStore } from '@/stores/tool-store';
+import { useFloorPlanStore } from '@/stores/floor-plan-store';
 import { buildEdgesFromFaces, calculateVertexNormals, createCubeMesh, createPlaneMesh, createCylinderMesh, createConeMesh, createUVSphereMesh, createIcoSphereMesh, createTorusMesh } from '@/utils/geometry';
 import { nanoid } from 'nanoid';
 import { Pill } from './pill';
@@ -95,7 +96,7 @@ const TopToolbar: React.FC = () => {
   const [portalContainer, setPortalContainer] = React.useState<HTMLElement | null>(null);
   React.useEffect(() => { setPortalContainer(document.body); }, []);
 
-  const beginShape = (shape: 'cube' | 'plane' | 'cylinder' | 'cone' | 'uvsphere' | 'icosphere' | 'torus') => {
+  const beginShape = (shape: 'cube' | 'plane' | 'cylinder' | 'cone' | 'uvsphere' | 'icosphere' | 'torus' | 'floorplan') => {
     // If we're currently in edit mode, and there is an active mesh, merge the new mesh into
     // the active mesh instead of creating a new scene object. This only applies for mesh->mesh.
     if (selection.viewMode === 'edit' && selection.meshId) {
@@ -118,6 +119,8 @@ const TopToolbar: React.FC = () => {
           newMesh = createIcoSphereMesh(1, 1); break;
         case 'torus':
           newMesh = createTorusMesh(1.2, 0.35, 16, 24); break;
+        case 'floorplan':
+          return;
         default:
           return;
       }
@@ -177,6 +180,15 @@ const TopToolbar: React.FC = () => {
         id = geometry.createIcoSphere(1, 1); name = 'Ico Sphere'; break;
       case 'torus':
         id = geometry.createTorus(1.2, 0.35, 16, 24); name = 'Torus'; break;
+      case 'floorplan': {
+        const objId = useFloorPlanStore.getState().createFloorPlanObject('Floor Plan');
+        scene.selectObject(objId);
+        if (selection.viewMode === 'object') {
+          selectionActions.selectObjects([objId]);
+        }
+        setMenuOpen(false);
+        return;
+      }
     }
     const objId = scene.createMeshObject(`${name} ${id.slice(-4)}`, id);
     scene.selectObject(objId);
