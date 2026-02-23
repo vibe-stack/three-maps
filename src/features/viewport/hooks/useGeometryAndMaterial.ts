@@ -70,5 +70,5 @@ export default function useGeometryAndMaterial({ displayMesh, shading, isSelecte
 
         return { geom: geo };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [displayMesh, shading, isSelected, materials]);
+    }, [displayMesh]);
 }

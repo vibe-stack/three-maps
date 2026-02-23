@@ -13,10 +13,11 @@ import QuickBrushHandler from '@/features/quick-brush/components/quick-brush-han
 import PolygonBrushHandler from '@/features/quick-brush/components/polygon-brush-handler';
 
 const SceneContent: React.FC = () => {
-  const scene = useSceneStore();
-  const viewport = useViewportStore();
+  const rootObjects = useSceneStore((s) => s.rootObjects);
+  const showGrid = useViewportStore((s) => s.showGrid);
+  const gridSize = useViewportStore((s) => s.gridSize);
   const viewMode = useViewMode();
-  const gridDivisions = Math.max(1, Math.round(500 / Math.max(0.01, viewport.gridSize)));
+  const gridDivisions = Math.max(1, Math.round(500 / Math.max(0.01, gridSize)));
   // RectAreaLight removed: no init required for WebGPU
 
   return (
@@ -24,7 +25,7 @@ const SceneContent: React.FC = () => {
       <ObjectToolHandler />
       <QuickBrushHandler />
       <PolygonBrushHandler />
-      {viewport.showGrid && (
+      {showGrid && (
         <WebGPUGrid
           args={[500, gridDivisions]}
           position={[0, -0.001, 0]}
@@ -32,14 +33,14 @@ const SceneContent: React.FC = () => {
           sectionColor="#646464"
           cellSize={0.5}
           sectionSize={1}
-          fadeDistance={400}
+          fadeDistance={100}
           fadeStrength={1}
           cellThickness={0.5}
           sectionThickness={1}
         />
       )}
       {/* Axes gizmo disabled for WebGPU (incompatible); retain setting state */}
-      {scene.rootObjects.map((id) => (
+      {rootObjects.map((id) => (
         <ObjectNode key={id} objectId={id} />
       ))}
       {viewMode === 'edit' && <EditModeOverlay />}

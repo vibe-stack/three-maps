@@ -38,7 +38,7 @@ const DirectionalLightBare: React.FC<{ color: Color; intensity: number }> = ({ c
     const l = ref.current;
     if (!l) return;
     l.castShadow = true;
-    l.shadow.mapSize.set(2048, 2048);
+    l.shadow.mapSize.set(1024, 1024);
     // A tiny negative bias and a higher normalBias reduce self-shadowing (acne)
     l.shadow.bias = -0.0001;
     l.shadow.normalBias = 0.07;
@@ -90,7 +90,7 @@ const SpotLightBare: React.FC<{
     const l = ref.current;
     if (!l) return;
     l.castShadow = true;
-    l.shadow.mapSize.set(2048, 2048);
+    l.shadow.mapSize.set(1024, 1024);
     l.shadow.bias = -0.0001;
     l.shadow.normalBias = 0.07;
     l.shadow.radius = 2;
@@ -130,7 +130,7 @@ const PointLightBare: React.FC<{ color: Color; intensity: number; distance: numb
       const l = ref.current;
       if (!l) return;
       l.castShadow = true;
-      l.shadow.mapSize.set(1024, 1024);
+      l.shadow.mapSize.set(512, 512);
       l.shadow.bias = -0.0002;
       l.shadow.normalBias = 0.05;
       l.shadow.radius = 2;
@@ -317,10 +317,14 @@ const CameraObjectNode: React.FC<{ objectId: string; cameraId: string; isMateria
   };
 
 const ObjectNode: React.FC<Props> = ({ objectId }) => {
-  const scene = useSceneStore();
-  const obj = scene.objects[objectId];
+  const obj = useSceneStore((s) => s.objects[objectId]);
+  const light = useSceneStore((s) => {
+    const lightId = s.objects[objectId]?.lightId;
+    return lightId ? s.lights[lightId] : undefined;
+  });
   const shading = useViewportStore((s) => s.shadingMode);
-  const tool = useToolStore();
+  const toolIsActive = useToolStore((s) => s.isActive);
+  const toolLocalData = useToolStore((s) => s.localData);
   const playing = useAnimationStore((s) => s.playing);
   // Determine if this object is driven by any transform tracks in the active clip
   const isDrivenByAnim = useAnimationStore((s) => {
@@ -351,12 +355,12 @@ const ObjectNode: React.FC<Props> = ({ objectId }) => {
   // Use live local transforms during active object tools for preview
   const t = useMemo(() => {
     if (!obj) return null;
-    if (tool.isActive && tool.localData && tool.localData.kind === 'object-transform') {
-      const lt = tool.localData.transforms[objectId];
+    if (toolIsActive && toolLocalData && toolLocalData.kind === 'object-transform') {
+      const lt = toolLocalData.transforms[objectId];
       if (lt) return lt;
     }
     return obj.transform;
-  }, [tool.isActive, tool.localData, objectId, obj]);
+  }, [toolIsActive, toolLocalData, objectId, obj]);
 
   if (!obj || !t) return null;
 
@@ -375,7 +379,6 @@ const ObjectNode: React.FC<Props> = ({ objectId }) => {
   { (obj.type === 'mesh' || obj.type === 'text') && <MeshView objectId={objectId} noTransform /> }
   { obj.type === 'terrain' && <TerrainView objectId={objectId} noTransform /> }
       {obj.type === 'light' && obj.lightId && (() => {
-        const light = scene.lights[obj.lightId!];
         if (!light) return null;
         const color = new Color(light.color.x, light.color.y, light.color.z);
         const isMaterial = (shading as unknown as string) === 'material';

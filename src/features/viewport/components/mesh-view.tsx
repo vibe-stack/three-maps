@@ -17,25 +17,26 @@ import { getOrCreateDownloadUrl } from '@/stores/files-store';
 type Props = { objectId: string; noTransform?: boolean };
 
 const MeshView: React.FC<Props> = ({ objectId, noTransform = false }) => {
-  const scene = useSceneStore();
-  const geometryStore = useGeometryStore();
+  const obj = useSceneStore((s) => s.objects[objectId]);
+  const selectObject = useSceneStore((s) => s.selectObject);
+  const meshes = useGeometryStore((s) => s.meshes);
+  const materials = useGeometryStore((s) => s.materials);
   const viewMode = useViewMode();
   const editMeshId = useSelectionStore((s) => s.selection.meshId);
-  const selectionActions = useSelectionStore();
-  const obj = scene.objects[objectId];
-  const mesh = obj?.meshId ? geometryStore.meshes.get(obj.meshId) : undefined;
+  const mesh = obj?.meshId ? meshes.get(obj.meshId) : undefined;
   const shading = useViewportStore((s) => s.shadingMode);
   const isSelected = useSelectionStore((s) => s.selection.objectIds.includes(objectId));
-  const tool = useToolStore();
+  const toolIsActive = useToolStore((s) => s.isActive);
+  const toolLocalData = useToolStore((s) => s.localData);
   const isLocked = !!obj?.locked;
   const modifiers = useObjectModifiers(objectId);
   const displayMesh = useDisplayMesh({ mesh, modifiers, viewMode, editMeshId, objMeshId: obj?.meshId });
   const floorPlan = useFloorPlanStore((s) => s.plans[objectId]);
 
-  const geomAndMat = useGeometryAndMaterial({ displayMesh, shading, isSelected, materials: geometryStore.materials });
+  const geomAndMat = useGeometryAndMaterial({ displayMesh, shading, isSelected, materials });
 
   // Material renderer hook returns the final material (node material preferred)
-  const activeMaterial = useShaderMaterialRenderer({ displayMesh, shading, isSelected, materials: geometryStore.materials });
+  const activeMaterial = useShaderMaterialRenderer({ displayMesh, shading, isSelected, materials });
   const [floorTexture, setFloorTexture] = useState<Texture | null>(null);
 
   useEffect(() => {
@@ -82,6 +83,13 @@ const MeshView: React.FC<Props> = ({ objectId, noTransform = false }) => {
     };
   }, [floorPlanMaterial]);
 
+  useEffect(() => {
+    const geom = geomAndMat?.geom;
+    return () => {
+      geom?.dispose?.();
+    };
+  }, [geomAndMat]);
+
   // Track the pointer-down position to distinguish orbit/drag from a click
   const downRef = useRef<{ x: number; y: number; id: string } | null>(null);
 
@@ -109,23 +117,23 @@ const MeshView: React.FC<Props> = ({ objectId, noTransform = false }) => {
     // True click: select
     e.stopPropagation();
     const isShift = e.shiftKey;
-    if (isShift) selectionActions.toggleObjectSelection(objectId);
-    else selectionActions.selectObjects([objectId], false);
-    scene.selectObject(objectId);
+    if (isShift) useSelectionStore.getState().toggleObjectSelection(objectId);
+    else useSelectionStore.getState().selectObjects([objectId], false);
+    selectObject(objectId);
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isLocked) return;
     if (viewMode === 'object' && obj.meshId) {
-      selectionActions.enterEditMode(obj.meshId);
+      useSelectionStore.getState().enterEditMode(obj.meshId);
     }
   };
 
   // Choose transform source: live localData during active tool, otherwise scene store
   const t = (() => {
-    if (tool.isActive && tool.localData && tool.localData.kind === 'object-transform') {
-      const lt = tool.localData.transforms[objectId];
+    if (toolIsActive && toolLocalData && toolLocalData.kind === 'object-transform') {
+      const lt = toolLocalData.transforms[objectId];
       if (lt) return lt;
     }
     return obj.transform;

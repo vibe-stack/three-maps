@@ -130,13 +130,8 @@ export const WorldEffects: React.FC = () => {
     if (postRef.current) {
       postRef.current.render();
     } else {
-      // Fallback: if no postprocessing chain is active, ensure the renderer still draws the scene.
-      // In some WebGPU setups the default React-Three-Fiber render path can be bypassed; call render explicitly.
-      try {
-        (gl as any).render(scene, camera);
-      } catch {
-        // ignore render errors here
-      }
+      // With render priority set on this callback, we must render manually when post is disabled.
+      (gl as any).render(scene, camera);
     }
   }, 1);
 
