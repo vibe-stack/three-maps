@@ -158,16 +158,22 @@ export const useFloorPlanStore = create<FloorPlanStore>()(
           if (mesh && mesh.vertices.length > 0) {
             let minX = Number.POSITIVE_INFINITY;
             let maxX = Number.NEGATIVE_INFINITY;
+            let minY = Number.POSITIVE_INFINITY;
+            let maxY = Number.NEGATIVE_INFINITY;
             let minZ = Number.POSITIVE_INFINITY;
             let maxZ = Number.NEGATIVE_INFINITY;
             for (const vertex of mesh.vertices) {
               minX = Math.min(minX, vertex.position.x);
               maxX = Math.max(maxX, vertex.position.x);
+              minY = Math.min(minY, vertex.position.y);
+              maxY = Math.max(maxY, vertex.position.y);
               minZ = Math.min(minZ, vertex.position.z);
               maxZ = Math.max(maxZ, vertex.position.z);
             }
+            const extentY = Math.max(0.001, maxY - minY);
+            const extentZ = Math.max(0.001, maxZ - minZ);
             baseX = Math.max(0.001, maxX - minX);
-            baseZ = Math.max(0.001, maxZ - minZ);
+            baseZ = extentZ > 0.0015 ? extentZ : extentY;
           }
 
           const sx = Math.max(0.01, next.planeWidth / baseX);

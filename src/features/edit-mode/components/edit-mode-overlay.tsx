@@ -10,7 +10,9 @@ import { VertexRenderer } from '@/features/edit-mode/components/vertex-renderer'
 import { EdgeRenderer } from '@/features/edit-mode/components/edge-renderer';
 import { FaceRenderer } from '@/features/edit-mode/components/face-renderer';
 import { ToolHandler } from '@/features/edit-mode/components/tool-handler';
+import { EdgeMidpointRenderer } from '@/features/edit-mode/components/edge-midpoint-renderer';
 import { Color, Vector3 } from 'three/webgpu';
+import { splitEdge } from '@/utils/geometry';
 import { useSelectionVertices } from '@/features/edit-mode/hooks/use-selection-vertices';
 import { useSceneStore } from '@/stores/scene-store';
 import { useLoopcut } from '@/features/edit-mode/hooks/use-loopcut';
@@ -75,6 +77,24 @@ const EditModeOverlay: React.FC = () => {
 			setLocalVertices(null);
 		}
 	}, [toolStore.isActive]);
+
+	// When a midpoint handle is dragged: split the edge at its midpoint, select the new vertex,
+	// switch to vertex mode, then start the move tool — the existing ToolHandler handles
+	// everything from there (pointer lock, axis locking, sensitivity, undo, etc.)
+	const handleMidpointDragStart = useCallback((edgeId: string, localPos: { x: number; y: number; z: number }) => {
+		if (toolStore.isActive || !meshId) return;
+		let newVertexId: string | null = null;
+		geometryStore.updateMesh(meshId, (mesh: any) => {
+			newVertexId = splitEdge(mesh, edgeId, localPos);
+		});
+		geometryStore.recalculateNormals(meshId);
+		if (!newVertexId) return;
+		// Switch to vertex mode and select the new vertex so the move tool operates on it
+		useSelectionStore.getState().setSelectionMode('vertex');
+		useSelectionStore.getState().selectVertices(meshId, [newVertexId]);
+		// Start the move tool — ToolHandler takes over from here
+		toolStore.startOperation('move', null);
+	}, [toolStore, meshId, geometryStore]);
 
 	const { centroid } = useSelectionVertices(meshId || '', localVertices);
 
@@ -266,6 +286,18 @@ const EditModeOverlay: React.FC = () => {
 								onEdgeClick={handleEdgeClick}
 								selectionMode={selection.selectionMode}
 								localVertices={localVertices || undefined}
+							/>
+						)}
+
+						{/* Edge midpoint handles — shown when no tool is active */}
+						{!toolStore.isActive && (
+							<EdgeMidpointRenderer
+								meshId={meshId!}
+								onMidpointDragStart={handleMidpointDragStart}
+								localVertices={localVertices || undefined}
+								objectScale={objTransform.scale}
+								objectRotation={objTransform.rotation}
+								objectPosition={objTransform.position}
 							/>
 						)}
 

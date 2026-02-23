@@ -142,11 +142,13 @@ export const InspectorPanel: React.FC = () => {
     const created: string[] = [];
 
     const floorObject = sceneState.objects[objectId];
+    const offsetX = (floorObject?.transform.position.x ?? plan.planeCenterX) - plan.planeCenterX;
     const baseY = floorObject?.transform.position.y ?? 0;
+    const offsetZ = (floorObject?.transform.position.z ?? plan.planeCenterY) - plan.planeCenterY;
 
     const groupId = sceneState.createGroupObject('Generated Room');
     sceneState.setTransform(groupId, {
-      position: { x: 0, y: baseY + h * 0.5, z: 0 },
+      position: { x: offsetX, y: baseY + h * 0.5, z: offsetZ },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
     });

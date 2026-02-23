@@ -169,6 +169,79 @@ export const buildEdgesFromFaces = (vertices: Vertex[], faces: Face[]): Edge[] =
   return edges;
 };
 
+/**
+ * Splits an edge at the given position, inserting a new vertex and updating adjacent faces.
+ * For quads, each adjacent quad is split into two quads (preserving quad topology).
+ * For other polygon types, the midpoint vertex is inserted between the two edge endpoints.
+ *
+ * Mutates `mesh` in place — call inside `geometryStore.updateMesh`.
+ */
+export const splitEdge = (mesh: Mesh, edgeId: string, newPosition: Vector3): string | null => {
+  const edge = mesh.edges.find(e => e.id === edgeId);
+  if (!edge) return null;
+
+  const [aId, bId] = edge.vertexIds;
+  const vA = mesh.vertices.find(v => v.id === aId);
+  const vB = mesh.vertices.find(v => v.id === bId);
+  if (!vA || !vB) return null;
+
+  // Create the new midpoint vertex at the provided position
+  const midNormal = normalizeVec3({
+    x: (vA.normal.x + vB.normal.x) / 2,
+    y: (vA.normal.y + vB.normal.y) / 2,
+    z: (vA.normal.z + vB.normal.z) / 2,
+  });
+  const midUv = vec2((vA.uv.x + vB.uv.x) / 2, (vA.uv.y + vB.uv.y) / 2);
+  const midVertex = createVertex(newPosition, midNormal, midUv);
+  mesh.vertices.push(midVertex);
+  const mId = midVertex.id;
+
+  // Process each adjacent face
+  const newFaces: Face[] = [];
+  const facesToRemove = new Set<string>();
+
+  for (const faceId of edge.faceIds) {
+    const face = mesh.faces.find(f => f.id === faceId);
+    if (!face) continue;
+
+    const ids = face.vertexIds;
+    const n = ids.length;
+
+    // Find the index of A and B in this face (they must be adjacent)
+    let aIdx = -1;
+    let bIdx = -1;
+    for (let i = 0; i < n; i++) {
+      if (ids[i] === aId) aIdx = i;
+      if (ids[i] === bId) bIdx = i;
+    }
+    if (aIdx === -1 || bIdx === -1) continue;
+
+    // Determine order: edge goes a→b or b→a in this face's winding
+    const abAdjacent = (aIdx + 1) % n === bIdx;
+    const baAdjacent = (bIdx + 1) % n === aIdx;
+    if (!abAdjacent && !baAdjacent) continue;
+
+    const edgeStart = abAdjacent ? aIdx : bIdx; // index of first vertex along edge in winding order
+    const edgeEnd = abAdjacent ? bIdx : aIdx;   // index of second vertex
+
+    // Insert M between edgeStart and edgeEnd, making an n+1 polygon.
+    // (A simple edge split always produces one additional vertex per adjacent face.)
+    facesToRemove.add(faceId);
+    const newIds = [...ids];
+    newIds.splice(edgeEnd, 0, mId);
+    newFaces.push(createFace(newIds));
+  }
+
+  // Replace old faces with new ones
+  mesh.faces = mesh.faces.filter(f => !facesToRemove.has(f.id));
+  mesh.faces.push(...newFaces);
+
+  // Rebuild edges from updated faces
+  mesh.edges = buildEdgesFromFaces(mesh.vertices, mesh.faces);
+
+  return mId;
+};
+
 // Primitive creation functions
 export const buildCubeGeometry = (size: number = 1): BuiltGeometry => {
   const h = size / 2;

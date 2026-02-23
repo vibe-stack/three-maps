@@ -281,23 +281,31 @@ const serializeDraft = (draft: NonNullable<ReturnType<typeof useFloorPlanStore.g
 });
 
 const renderTexture = async (elements: FloorPlanElement[]): Promise<Blob | null> => {
+  const bounds = computePlanBounds(elements);
+  const spanX = Math.max(0.1, bounds.width);
+  const spanY = Math.max(0.1, bounds.height);
+  const maxDim = 2048;
+
   const canvas = document.createElement('canvas');
-  canvas.width = 2048;
-  canvas.height = 2048;
+  if (spanX >= spanY) {
+    canvas.width = maxDim;
+    canvas.height = Math.max(1, Math.round(maxDim * (spanY / spanX)));
+  } else {
+    canvas.height = maxDim;
+    canvas.width = Math.max(1, Math.round(maxDim * (spanX / spanY)));
+  }
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
   ctx.fillStyle = '#0b0e13';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  const bounds = computePlanBounds(elements);
-  const spanX = Math.max(1, bounds.width);
-  const spanY = Math.max(1, bounds.height);
-  const scale = Math.min(canvas.width / spanX, canvas.height / spanY);
-  const ox = canvas.width * 0.5 - bounds.centerX * scale;
-  const oy = canvas.height * 0.5 - bounds.centerY * scale;
-
-  const toPx = (p: Vec2): Vec2 => ({ x: ox + p.x * scale, y: oy + p.y * scale });
+  const scaleX = canvas.width / spanX;
+  const scaleY = canvas.height / spanY;
+  const toPx = (p: Vec2): Vec2 => ({
+    x: (p.x - bounds.minX) * scaleX,
+    y: (p.y - bounds.minY) * scaleY,
+  });
 
   ctx.strokeStyle = 'rgba(148,163,184,0.18)';
   ctx.lineWidth = 1;
@@ -321,14 +329,14 @@ const renderTexture = async (elements: FloorPlanElement[]): Promise<Blob | null>
     ctx.fillStyle = strokeForType(el.type);
     if (el.type === 'text') {
       const p = toPx({ x: el.x, y: el.y });
-      ctx.font = `${Math.max(16, el.height * scale * 0.8)}px ui-sans-serif`;
+      ctx.font = `${Math.max(16, el.height * Math.min(scaleX, scaleY) * 0.8)}px ui-sans-serif`;
       ctx.fillText(el.text || '', p.x, p.y);
       continue;
     }
     if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
       const a = toPx({ x: el.x, y: el.y });
       const b = toPx({ x: el.x2, y: el.y2 });
-      ctx.lineWidth = Math.max(1.5, el.height * scale);
+      ctx.lineWidth = Math.max(1.5, el.height * Math.min(scaleX, scaleY));
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
@@ -337,8 +345,8 @@ const renderTexture = async (elements: FloorPlanElement[]): Promise<Blob | null>
     }
 
     const center = toPx({ x: el.x, y: el.y });
-    const w = Math.max(2, el.width * scale);
-    const h = Math.max(2, el.height * scale);
+    const w = Math.max(2, el.width * scaleX);
+    const h = Math.max(2, el.height * scaleY);
     ctx.save();
     ctx.translate(center.x, center.y);
     ctx.rotate(el.rotation);
