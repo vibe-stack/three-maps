@@ -21,7 +21,7 @@ import { useFloorPlanStore } from '@/stores/floor-plan-store';
 import { useGeometryStore } from '@/stores/geometry-store';
 import { createFace, createMeshFromGeometry, createVertex, vec2, vec3 } from '@/utils/geometry';
 import { buildArchGeometry, buildDoorGeometry, buildStairsGeometryWithOptions, buildWedgeGeometry, buildWindowGeometry } from '@/features/quick-brush/utils/brush-geometry';
-import { ShapeUtils } from 'three';
+import { ShapeUtils, Vector2 } from 'three';
 
 const GREYBOX_MATERIAL_ID = 'mat-greybox-shared';
 let greyboxTextureFileId: string | null = null;
@@ -201,7 +201,7 @@ export const InspectorPanel: React.FC = () => {
       cx /= points.length;
       cz /= points.length;
 
-      const ring = points.map((p) => ({ x: p.x - cx, y: p.y - cz }));
+      const ring = points.map((p) => new Vector2(p.x - cx, p.y - cz));
       const tris = ShapeUtils.triangulateShape(ring as any, []);
       if (!tris.length) return null;
 
