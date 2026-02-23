@@ -7,6 +7,7 @@ import { useSceneStore } from './scene-store';
 export type FloorPlanTool =
   | 'select'
   | 'wall'
+  | 'polygon'
   | 'door'
   | 'pillar-circle'
   | 'pillar-rect'
@@ -15,9 +16,18 @@ export type FloorPlanTool =
   | 'slope'
   | 'arch'
   | 'window'
+  | 'zone'
+  | 'path'
+  | 'poi'
+  | 'spawn'
   | 'text';
 
-export type FloorPlanShape = 'line' | 'rect' | 'circle';
+export type FloorPlanShape = 'line' | 'rect' | 'circle' | 'polygon';
+
+export type FloorPlanPoint = {
+  x: number;
+  y: number;
+};
 
 export type FloorPlanElement = {
   id: string;
@@ -30,7 +40,10 @@ export type FloorPlanElement = {
   rotation: number;
   x2?: number;
   y2?: number;
+  points?: FloorPlanPoint[];
   text?: string;
+  color?: string;
+  nonStructural?: boolean;
 };
 
 export type FloorPlanResource = {
@@ -76,7 +89,10 @@ type FloorPlanStore = FloorPlanState & FloorPlanActions;
 
 const clonePlan = (plan: FloorPlanResource): FloorPlanResource => ({
   ...plan,
-  elements: plan.elements.map((e) => ({ ...e })),
+  elements: plan.elements.map((e) => ({
+    ...e,
+    points: e.points?.map((p) => ({ ...p })),
+  })),
 });
 
 export const useFloorPlanStore = create<FloorPlanStore>()(
@@ -247,7 +263,18 @@ export const useFloorPlanStore = create<FloorPlanStore>()(
         safe[objectId] = {
           ...plan,
           objectId,
-          elements: Array.isArray(plan.elements) ? plan.elements.map((e) => ({ ...e })) : [],
+          elements: Array.isArray(plan.elements)
+            ? plan.elements.map((e) => ({
+                ...e,
+                points: Array.isArray((e as any).points)
+                  ? (e as any).points
+                      .map((p: any) => ({ x: Number(p?.x) || 0, y: Number(p?.y) || 0 }))
+                      .filter((p: any) => Number.isFinite(p.x) && Number.isFinite(p.y))
+                  : undefined,
+                color: typeof (e as any).color === 'string' ? (e as any).color : undefined,
+                nonStructural: (e as any).nonStructural === true,
+              }))
+            : [],
           ghostObjectId: typeof (plan as any).ghostObjectId === 'string' ? (plan as any).ghostObjectId : null,
           ghostOpacity: Number.isFinite((plan as any).ghostOpacity) ? Math.min(1, Math.max(0, (plan as any).ghostOpacity)) : 0.35,
           planeWidth: Number.isFinite((plan as any).planeWidth) ? Math.max(0.1, (plan as any).planeWidth) : 8,

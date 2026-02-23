@@ -6,13 +6,17 @@ import {
   Square,
   Type,
   Move,
+  Map as MapIcon,
+  MapPinned,
+  Route,
+  LocateFixed,
   Grid3X3,
   Magnet,
   ScanLine,
   DoorOpen,
   Blinds,
-  Route,
   PanelTop,
+  Shapes,
   Save,
   X,
 } from 'lucide-react';
@@ -20,34 +24,18 @@ import { ensureFileIdForBlob } from '@/stores/files-store';
 import { FloorPlanElement, FloorPlanTool, useFloorPlanStore } from '@/stores/floor-plan-store';
 import { BRUSH_REGISTRY } from '@/features/quick-brush/brushes/registry';
 import { DragInput } from '@/components/drag-input';
-
-type Vec2 = { x: number; y: number };
-
-type ActiveTransform = {
-  mode: 'move' | 'rotate' | 'scale';
-  axis: 'xy' | 'x' | 'y';
-  startMouse: Vec2;
-  origin: Vec2;
-  originals: Map<string, FloorPlanElement>;
-};
-
-type DragCreate = {
-  tool: Exclude<FloorPlanTool, 'select' | 'wall' | 'text'>;
-  start: Vec2;
-  current: Vec2;
-};
-
-type PendingText = {
-  id: string;
-  position: Vec2;
-  value: string;
-};
+import { drawPlanElement, drawMeasure, computePlanBounds, elementHitTest, renderTexture } from '@/features/floor-plan/editor/draw';
+import { centerOfSelection, dist, polygonCentroid, rotatePoint } from '@/features/floor-plan/editor/math';
+import { DRAFTING_TOOLS, STRUCTURAL_TOOLS, elementDefaults } from '@/features/floor-plan/editor/tools';
+import { placeOpeningOnWall } from '@/features/floor-plan/editor/openings';
+import type { ActiveTransform, DragCreate, DraftPolygon, PendingText, Vec2 } from '@/features/floor-plan/editor/types';
 
 const brushIconById = new Map(BRUSH_REGISTRY.map((b) => [b.id, b.icon]));
 
 const TOOL_LIST: Array<{ id: FloorPlanTool; label: string; icon: React.ReactNode }> = [
   { id: 'select', label: 'Select', icon: brushIconById.get('select') ?? <Move className="w-4 h-4" /> },
   { id: 'wall', label: 'Walls', icon: brushIconById.get('polygon') ?? <ScanLine className="w-4 h-4" /> },
+  { id: 'polygon', label: 'Polygon', icon: <Shapes className="w-4 h-4" /> },
   { id: 'door', label: 'Doors', icon: brushIconById.get('door') ?? <DoorOpen className="w-4 h-4" /> },
   { id: 'pillar-circle', label: 'Pillar C', icon: brushIconById.get('cylinder') ?? <Circle className="w-4 h-4" /> },
   { id: 'pillar-rect', label: 'Pillar R', icon: brushIconById.get('cube') ?? <Square className="w-4 h-4" /> },
@@ -57,218 +45,13 @@ const TOOL_LIST: Array<{ id: FloorPlanTool; label: string; icon: React.ReactNode
   { id: 'arch', label: 'Arch', icon: brushIconById.get('arch') ?? <Route className="w-4 h-4" /> },
   { id: 'window', label: 'Window', icon: <Blinds className="w-4 h-4" /> },
   { id: 'text', label: 'Text', icon: <Type className="w-4 h-4" /> },
+  { id: 'zone', label: 'Zone', icon: <MapIcon className="w-4 h-4" /> },
+  { id: 'path', label: 'Path', icon: <Route className="w-4 h-4" /> },
+  { id: 'poi', label: 'POI', icon: <MapPinned className="w-4 h-4" /> },
+  { id: 'spawn', label: 'Spawn', icon: <LocateFixed className="w-4 h-4" /> },
 ];
 
-const strokeForType = (type: FloorPlanElement['type']) => {
-  switch (type) {
-    case 'wall': return '#e5e7eb';
-    case 'door': return '#f59e0b';
-    case 'window': return '#60a5fa';
-    case 'arch': return '#c084fc';
-    case 'stairs': return '#34d399';
-    case 'stairs-closed': return '#10b981';
-    case 'slope': return '#f472b6';
-    case 'text': return '#e2e8f0';
-    case 'pillar-circle':
-    case 'pillar-rect':
-      return '#fb7185';
-    default:
-      return '#e5e7eb';
-  }
-};
-
-const elementDefaults = (tool: Exclude<FloorPlanTool, 'select' | 'wall' | 'text'>) => {
-  switch (tool) {
-    case 'door': return { w: 1, h: 0.2, shape: 'line' as const };
-    case 'window': return { w: 1, h: 0.2, shape: 'line' as const };
-    case 'arch': return { w: 1.4, h: 0.25, shape: 'line' as const };
-    case 'pillar-circle': return { w: 0.8, h: 0.8, shape: 'circle' as const };
-    case 'pillar-rect': return { w: 0.8, h: 0.8, shape: 'rect' as const };
-    case 'stairs': return { w: 2, h: 1.2, shape: 'rect' as const };
-    case 'stairs-closed': return { w: 2, h: 1.2, shape: 'rect' as const };
-    case 'slope': return { w: 2.2, h: 1.4, shape: 'rect' as const };
-    default: return { w: 1, h: 1, shape: 'rect' as const };
-  }
-};
-
-const rotatePoint = (point: Vec2, center: Vec2, angle: number): Vec2 => {
-  const s = Math.sin(angle);
-  const c = Math.cos(angle);
-  const x = point.x - center.x;
-  const y = point.y - center.y;
-  return { x: center.x + (x * c - y * s), y: center.y + (x * s + y * c) };
-};
-
-const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
-
-const centerOfSelection = (elements: FloorPlanElement[]): Vec2 => {
-  if (elements.length === 0) return { x: 0, y: 0 };
-  let sx = 0;
-  let sy = 0;
-  for (const el of elements) {
-    if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
-      sx += (el.x + el.x2) * 0.5;
-      sy += (el.y + el.y2) * 0.5;
-    } else {
-      sx += el.x;
-      sy += el.y;
-    }
-  }
-  return { x: sx / elements.length, y: sy / elements.length };
-};
-
-const drawMeasure = (
-  ctx: CanvasRenderingContext2D,
-  a: Vec2,
-  b: Vec2,
-  label: string,
-  color = 'rgba(226,232,240,0.92)'
-) => {
-  const angle = Math.atan2(b.y - a.y, b.x - a.x);
-  const mid = { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 };
-  ctx.save();
-  ctx.translate(mid.x, mid.y);
-  ctx.rotate(angle);
-  ctx.fillStyle = 'rgba(15,20,27,0.92)';
-  const w = Math.max(40, ctx.measureText(label).width + 10);
-  ctx.fillRect(-w * 0.5, -16, w, 14);
-  ctx.fillStyle = color;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, 0, -9);
-  ctx.restore();
-};
-
-const computePlanBounds = (elements: FloorPlanElement[]) => {
-  if (!elements.length) {
-    return { minX: -4, maxX: 4, minY: -4, maxY: 4, width: 8, height: 8, centerX: 0, centerY: 0 };
-  }
-  let minX = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-
-  for (const el of elements) {
-    if (el.type === 'text') {
-      continue;
-    }
-    if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
-      minX = Math.min(minX, el.x, el.x2);
-      maxX = Math.max(maxX, el.x, el.x2);
-      minY = Math.min(minY, el.y, el.y2);
-      maxY = Math.max(maxY, el.y, el.y2);
-      continue;
-    }
-    minX = Math.min(minX, el.x - el.width * 0.5);
-    maxX = Math.max(maxX, el.x + el.width * 0.5);
-    minY = Math.min(minY, el.y - el.height * 0.5);
-    maxY = Math.max(maxY, el.y + el.height * 0.5);
-  }
-
-  const width = Math.max(0.1, maxX - minX);
-  const height = Math.max(0.1, maxY - minY);
-  const centerX = (minX + maxX) * 0.5;
-  const centerY = (minY + maxY) * 0.5;
-  return { minX, maxX, minY, maxY, width, height, centerX, centerY };
-};
-
-const drawPlanElement = (
-  ctx: CanvasRenderingContext2D,
-  el: FloorPlanElement,
-  worldToScreen: (p: Vec2) => Vec2,
-  zoom: number,
-  selected = false,
-  withMeasures = false,
-) => {
-  ctx.save();
-  ctx.strokeStyle = selected ? '#f59e0b' : strokeForType(el.type);
-  ctx.fillStyle = selected ? '#f59e0b' : strokeForType(el.type);
-  ctx.lineWidth = selected ? 2 : 1.5;
-
-  if (el.type === 'text') {
-    const p = worldToScreen({ x: el.x, y: el.y });
-    ctx.font = `${Math.max(12, el.height * zoom * 0.75)}px ui-sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(el.text || '', p.x, p.y);
-    ctx.restore();
-    return;
-  }
-
-  if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
-    const a = worldToScreen({ x: el.x, y: el.y });
-    const b = worldToScreen({ x: el.x2, y: el.y2 });
-    ctx.lineWidth = Math.max(1.5, el.height * zoom * 0.6);
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
-    if (withMeasures) drawMeasure(ctx, a, b, `${Math.hypot(el.x2 - el.x, el.y2 - el.y).toFixed(2)}m`);
-    ctx.restore();
-    return;
-  }
-
-  const c = worldToScreen({ x: el.x, y: el.y });
-  ctx.translate(c.x, c.y);
-  ctx.rotate(el.rotation);
-  const w = el.width * zoom;
-  const h = el.height * zoom;
-  if (el.shape === 'circle') {
-    ctx.beginPath();
-    ctx.ellipse(0, 0, Math.abs(w * 0.5), Math.abs(h * 0.5), 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-    return;
-  }
-
-  ctx.strokeRect(-w * 0.5, -h * 0.5, w, h);
-  if (el.type === 'stairs' || el.type === 'stairs-closed') {
-    const steps = 6;
-    for (let i = 1; i < steps; i++) {
-      const y = -h * 0.5 + (i / steps) * h;
-      ctx.beginPath();
-      ctx.moveTo(-w * 0.5, y);
-      ctx.lineTo(w * 0.5, y);
-      ctx.stroke();
-    }
-    if (el.type === 'stairs-closed') {
-      ctx.beginPath();
-      ctx.moveTo(0, -h * 0.5);
-      ctx.lineTo(0, h * 0.5);
-      ctx.stroke();
-    }
-  }
-  if (el.type === 'slope') {
-    ctx.beginPath();
-    ctx.moveTo(-w * 0.5, h * 0.5);
-    ctx.lineTo(w * 0.5, -h * 0.5);
-    ctx.stroke();
-  }
-
-  // Direction arrows: stairs ascend toward +local Y (down on screen), slope ascends toward -local Y (up on screen)
-  const dir = el.type === 'slope' ? -1 : 1;
-  if (el.type === 'stairs' || el.type === 'stairs-closed' || el.type === 'slope') {
-    const y0 = -dir * h * 0.22;
-    const y1 = dir * h * 0.22;
-    ctx.beginPath();
-    ctx.moveTo(0, y0);
-    ctx.lineTo(0, y1);
-    ctx.lineTo(-w * 0.08, y1 - dir * h * 0.08);
-    ctx.moveTo(0, y1);
-    ctx.lineTo(w * 0.08, y1 - dir * h * 0.08);
-    ctx.stroke();
-  }
-
-  if (withMeasures) {
-    drawMeasure(
-      ctx,
-      { x: -w * 0.5, y: h * 0.6 },
-      { x: w * 0.5, y: h * 0.6 },
-      `${el.width.toFixed(2)}m`
-    );
-  }
-  ctx.restore();
-};
+const TOOL_META = new Map(TOOL_LIST.map((t) => [t.id, t]));
 
 const serializeDraft = (draft: NonNullable<ReturnType<typeof useFloorPlanStore.getState>['draft']>) => JSON.stringify({
   gridSize: draft.gridSize,
@@ -279,123 +62,6 @@ const serializeDraft = (draft: NonNullable<ReturnType<typeof useFloorPlanStore.g
   planeCenterY: draft.planeCenterY,
   elements: draft.elements,
 });
-
-const renderTexture = async (elements: FloorPlanElement[]): Promise<Blob | null> => {
-  const bounds = computePlanBounds(elements);
-  const spanX = Math.max(0.1, bounds.width);
-  const spanY = Math.max(0.1, bounds.height);
-  const maxDim = 2048;
-
-  const canvas = document.createElement('canvas');
-  if (spanX >= spanY) {
-    canvas.width = maxDim;
-    canvas.height = Math.max(1, Math.round(maxDim * (spanY / spanX)));
-  } else {
-    canvas.height = maxDim;
-    canvas.width = Math.max(1, Math.round(maxDim * (spanX / spanY)));
-  }
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  ctx.fillStyle = '#0b0e13';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  const scaleX = canvas.width / spanX;
-  const scaleY = canvas.height / spanY;
-  const toPx = (p: Vec2): Vec2 => ({
-    x: (p.x - bounds.minX) * scaleX,
-    y: (p.y - bounds.minY) * scaleY,
-  });
-
-  ctx.strokeStyle = 'rgba(148,163,184,0.18)';
-  ctx.lineWidth = 1;
-  for (let i = -100; i <= 100; i++) {
-    const a = toPx({ x: i, y: -100 });
-    const b = toPx({ x: i, y: 100 });
-    const c = toPx({ x: -100, y: i });
-    const d = toPx({ x: 100, y: i });
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(c.x, c.y);
-    ctx.lineTo(d.x, d.y);
-    ctx.stroke();
-  }
-
-  for (const el of elements) {
-    ctx.strokeStyle = strokeForType(el.type);
-    ctx.fillStyle = strokeForType(el.type);
-    if (el.type === 'text') {
-      const p = toPx({ x: el.x, y: el.y });
-      ctx.font = `${Math.max(16, el.height * Math.min(scaleX, scaleY) * 0.8)}px ui-sans-serif`;
-      ctx.fillText(el.text || '', p.x, p.y);
-      continue;
-    }
-    if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
-      const a = toPx({ x: el.x, y: el.y });
-      const b = toPx({ x: el.x2, y: el.y2 });
-      ctx.lineWidth = Math.max(1.5, el.height * Math.min(scaleX, scaleY));
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-      continue;
-    }
-
-    const center = toPx({ x: el.x, y: el.y });
-    const w = Math.max(2, el.width * scaleX);
-    const h = Math.max(2, el.height * scaleY);
-    ctx.save();
-    ctx.translate(center.x, center.y);
-    ctx.rotate(el.rotation);
-    if (el.shape === 'circle') {
-      ctx.beginPath();
-      ctx.ellipse(0, 0, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
-      ctx.stroke();
-    } else {
-      ctx.strokeRect(-w * 0.5, -h * 0.5, w, h);
-      if (el.type === 'stairs' || el.type === 'stairs-closed') {
-        const steps = 6;
-        for (let i = 1; i < steps; i++) {
-          const y = -h * 0.5 + (i / steps) * h;
-          ctx.beginPath();
-          ctx.moveTo(-w * 0.5, y);
-          ctx.lineTo(w * 0.5, y);
-          ctx.stroke();
-        }
-        if (el.type === 'stairs-closed') {
-          ctx.beginPath();
-          ctx.moveTo(0, -h * 0.5);
-          ctx.lineTo(0, h * 0.5);
-          ctx.stroke();
-        }
-      }
-      if (el.type === 'slope') {
-        ctx.beginPath();
-        ctx.moveTo(-w * 0.5, h * 0.5);
-        ctx.lineTo(w * 0.5, -h * 0.5);
-        ctx.stroke();
-      }
-      const dir = el.type === 'slope' ? -1 : 1;
-      if (el.type === 'stairs' || el.type === 'stairs-closed' || el.type === 'slope') {
-        const y0 = -dir * h * 0.22;
-        const y1 = dir * h * 0.22;
-        ctx.beginPath();
-        ctx.moveTo(0, y0);
-        ctx.lineTo(0, y1);
-        ctx.lineTo(-w * 0.08, y1 - dir * h * 0.08);
-        ctx.moveTo(0, y1);
-        ctx.lineTo(w * 0.08, y1 - dir * h * 0.08);
-        ctx.stroke();
-      }
-    }
-    ctx.restore();
-  }
-
-  return await new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/png'));
-};
 
 const FloorPlanEditor: React.FC = () => {
   const open = useFloorPlanStore((s) => s.open);
@@ -412,10 +78,12 @@ const FloorPlanEditor: React.FC = () => {
   const [dragCreate, setDragCreate] = React.useState<DragCreate | null>(null);
   const [wallChain, setWallChain] = React.useState<{ first: Vec2; last: Vec2; count: number } | null>(null);
   const [wallPreview, setWallPreview] = React.useState<Vec2 | null>(null);
+  const [polygonDraft, setPolygonDraft] = React.useState<DraftPolygon | null>(null);
   const [transform, setTransform] = React.useState<ActiveTransform | null>(null);
   const [spacePanning, setSpacePanning] = React.useState(false);
   const [pendingText, setPendingText] = React.useState<PendingText | null>(null);
   const [viewSize, setViewSize] = React.useState({ w: 1, h: 1 });
+  const [draftColor, setDraftColor] = React.useState('#38bdf8');
 
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -433,6 +101,16 @@ const FloorPlanEditor: React.FC = () => {
   React.useEffect(() => { panRef.current = pan; }, [pan]);
   React.useEffect(() => { zoomRef.current = zoom; }, [zoom]);
   React.useEffect(() => { viewSizeRef.current = viewSize; }, [viewSize]);
+
+  React.useEffect(() => {
+    if (tool !== 'wall') {
+      setWallChain(null);
+      setWallPreview(null);
+    }
+    if (tool !== 'polygon') {
+      setPolygonDraft(null);
+    }
+  }, [tool]);
 
   React.useEffect(() => {
     if (!open || !draft) {
@@ -500,35 +178,8 @@ const FloorPlanEditor: React.FC = () => {
     let hit: { id: string; d: number } | null = null;
     const threshold = 10 / zoom;
     for (const el of elements) {
-      if (el.type === 'text') {
-        const d = Math.hypot(world.x - el.x, world.y - el.y);
-        if (d <= threshold && (!hit || d < hit.d)) hit = { id: el.id, d };
-        continue;
-      }
-      if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
-        const ax = el.x;
-        const ay = el.y;
-        const bx = el.x2;
-        const by = el.y2;
-        const abx = bx - ax;
-        const aby = by - ay;
-        const apx = world.x - ax;
-        const apy = world.y - ay;
-        const denom = Math.max(1e-6, abx * abx + aby * aby);
-        const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / denom));
-        const px = ax + abx * t;
-        const py = ay + aby * t;
-        const d = Math.hypot(world.x - px, world.y - py);
-        if (d <= threshold && (!hit || d < hit.d)) hit = { id: el.id, d };
-      } else {
-        const local = rotatePoint(world, { x: el.x, y: el.y }, -el.rotation);
-        const inside = Math.abs(local.x - el.x) <= el.width * 0.5 + threshold
-          && Math.abs(local.y - el.y) <= el.height * 0.5 + threshold;
-        if (inside) {
-          const d = Math.hypot(local.x - el.x, local.y - el.y);
-          if (!hit || d < hit.d) hit = { id: el.id, d };
-        }
-      }
+      const d = elementHitTest(el, world, threshold);
+      if (d != null && (!hit || d < hit.d)) hit = { id: el.id, d };
     }
     return hit?.id ?? null;
   }, [elements, zoom]);
@@ -539,7 +190,7 @@ const FloorPlanEditor: React.FC = () => {
     if (!selectedEls.length) return;
     const origin = centerOfSelection(selectedEls);
     const originals = new Map<string, FloorPlanElement>();
-    for (const el of selectedEls) originals.set(el.id, { ...el });
+    for (const el of selectedEls) originals.set(el.id, { ...el, points: el.points?.map((p) => ({ ...p })) });
     setTransform({ mode, axis: 'xy', startMouse: { x: Number.NaN, y: Number.NaN }, origin, originals });
   }, [draft, selection]);
 
@@ -613,6 +264,8 @@ const FloorPlanEditor: React.FC = () => {
             d.elements = d.elements.map((el) => transform.originals.get(el.id) ?? el);
           });
           setTransform(null);
+        } else if (polygonDraft) {
+          setPolygonDraft(null);
         } else if (wallChain) {
           setWallChain(null);
           setWallPreview(null);
@@ -623,10 +276,33 @@ const FloorPlanEditor: React.FC = () => {
           }
           cancelDraft();
         }
-      } else if (e.key === 'Enter' && wallChain) {
-        e.preventDefault();
-        setWallChain(null);
-        setWallPreview(null);
+      } else if (e.key === 'Enter') {
+        if (wallChain) {
+          e.preventDefault();
+          setWallChain(null);
+          setWallPreview(null);
+        } else if (polygonDraft && polygonDraft.points.length >= 3) {
+          e.preventDefault();
+          const points = polygonDraft.points;
+          const c = polygonCentroid(points);
+          const poly: FloorPlanElement = {
+            id: crypto.randomUUID(),
+            type: 'polygon',
+            shape: 'polygon',
+            x: c.x,
+            y: c.y,
+            width: 1,
+            height: 1,
+            rotation: 0,
+            points: points.map((p) => ({ ...p })),
+            nonStructural: false,
+          };
+          updateDraft((d) => {
+            d.elements.push(poly);
+          });
+          setSelection(new Set([poly.id]));
+          setPolygonDraft(null);
+        }
       }
     };
 
@@ -640,7 +316,7 @@ const FloorPlanEditor: React.FC = () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [open, draft, selection.size, transform, wallChain, updateDraft, cancelDraft, startTransform, pendingText, hasUnsavedChanges]);
+  }, [open, draft, selection.size, transform, wallChain, polygonDraft, updateDraft, cancelDraft, startTransform, pendingText, hasUnsavedChanges]);
 
   React.useEffect(() => {
     const canvas = canvasRef.current;
@@ -846,6 +522,35 @@ const FloorPlanEditor: React.FC = () => {
       ctx.restore();
     }
 
+    if (polygonDraft && polygonDraft.points.length > 0) {
+      const pts = polygonDraft.points.map(worldToScreen);
+      const preview = polygonDraft.preview ? worldToScreen(polygonDraft.preview) : null;
+      ctx.save();
+      ctx.strokeStyle = '#a3e635';
+      ctx.fillStyle = '#a3e635';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      if (preview) ctx.lineTo(preview.x, preview.y);
+      ctx.stroke();
+      for (const p of pts) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (pts.length >= 3) {
+        ctx.globalAlpha = 0.18;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+        if (preview) ctx.lineTo(preview.x, preview.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     ctx.fillStyle = '#111827';
     ctx.fillRect(0, 0, viewSize.w, 24);
     ctx.fillRect(0, 0, 24, viewSize.h);
@@ -871,7 +576,7 @@ const FloorPlanEditor: React.FC = () => {
         ctx.fillText(world, 2, y - 2);
       }
     }
-  }, [open, draft, elements, ghostPlan, pan.x, pan.y, zoom, selection, worldToScreen, dragCreate, wallChain, wallPreview, viewSize.w, viewSize.h]);
+  }, [open, draft, elements, ghostPlan, pan.x, pan.y, zoom, selection, worldToScreen, dragCreate, wallChain, wallPreview, polygonDraft, viewSize.w, viewSize.h]);
 
   const pointerPos = (event: React.PointerEvent<HTMLCanvasElement>): Vec2 => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -915,9 +620,50 @@ const FloorPlanEditor: React.FC = () => {
           });
         } else {
           setSelection(new Set([hit]));
+          const selectedEls = draft.elements.filter((e) => e.id === hit);
+          if (selectedEls.length > 0) {
+            const origin = centerOfSelection(selectedEls);
+            const originals = new Map<string, FloorPlanElement>();
+            for (const el of selectedEls) originals.set(el.id, { ...el, points: el.points?.map((p) => ({ ...p })) });
+            setTransform({ mode: 'move', axis: 'xy', startMouse: world, origin, originals });
+          }
         }
       } else if (!event.shiftKey) {
         setSelection(new Set());
+      }
+      return;
+    }
+
+    if (tool === 'polygon') {
+      const closeRadius = 14 / zoom;
+      if (!polygonDraft) {
+        setPolygonDraft({ points: [world], preview: world });
+      } else {
+        const first = polygonDraft.points[0];
+        const closeToStart = polygonDraft.points.length >= 3 && dist(world, first) <= closeRadius;
+        if (closeToStart) {
+          const points = polygonDraft.points;
+          const c = polygonCentroid(points);
+          const poly: FloorPlanElement = {
+            id: crypto.randomUUID(),
+            type: 'polygon',
+            shape: 'polygon',
+            x: c.x,
+            y: c.y,
+            width: 1,
+            height: 1,
+            rotation: 0,
+            points: points.map((p) => ({ ...p })),
+            nonStructural: false,
+          };
+          updateDraft((d) => {
+            d.elements.push(poly);
+          });
+          setSelection(new Set([poly.id]));
+          setPolygonDraft(null);
+        } else {
+          setPolygonDraft({ points: [...polygonDraft.points, world], preview: world });
+        }
       }
       return;
     }
@@ -954,7 +700,7 @@ const FloorPlanEditor: React.FC = () => {
       return;
     }
 
-    const brushTool = tool as Exclude<FloorPlanTool, 'select' | 'wall' | 'text'>;
+    const brushTool = tool as Exclude<FloorPlanTool, 'select' | 'wall' | 'text' | 'polygon'>;
     setDragCreate({ tool: brushTool, start: world, current: world });
   };
 
@@ -972,6 +718,7 @@ const FloorPlanEditor: React.FC = () => {
 
     const world = applySnap(screenToWorld(pos));
     if (wallChain) setWallPreview(world);
+    if (polygonDraft) setPolygonDraft((prev) => prev ? { ...prev, preview: world } : prev);
 
     if (transform) {
       const start = transform.startMouse;
@@ -995,6 +742,9 @@ const FloorPlanEditor: React.FC = () => {
             const my = transform.axis === 'x' ? 0 : dy;
             next.x += mx;
             next.y += my;
+            if (next.shape === 'polygon' && next.points?.length) {
+              next.points = next.points.map((p) => ({ x: p.x + mx, y: p.y + my }));
+            }
             if (typeof next.x2 === 'number' && typeof next.y2 === 'number') {
               next.x2 += mx;
               next.y2 += my;
@@ -1016,6 +766,13 @@ const FloorPlanEditor: React.FC = () => {
               next.y = p1.y;
               next.x2 = p2.x;
               next.y2 = p2.y;
+            } else if (next.shape === 'polygon' && original.points?.length) {
+              const rotated = original.points.map((p) => rotatePoint(p, transform.origin, da));
+              const c = polygonCentroid(rotated);
+              next.points = rotated;
+              next.x = c.x;
+              next.y = c.y;
+              next.rotation = original.rotation + da;
             } else {
               const p = rotatePoint({ x: original.x, y: original.y }, transform.origin, da);
               next.x = p.x;
@@ -1039,6 +796,15 @@ const FloorPlanEditor: React.FC = () => {
               next.y = c.y + a.y * sy;
               next.x2 = c.x + b.x * sx;
               next.y2 = c.y + b.y * sy;
+            } else if (next.shape === 'polygon' && original.points?.length) {
+              const scaled = original.points.map((p) => ({
+                x: transform.origin.x + (p.x - transform.origin.x) * sx,
+                y: transform.origin.y + (p.y - transform.origin.y) * sy,
+              }));
+              const c = polygonCentroid(scaled);
+              next.points = scaled;
+              next.x = c.x;
+              next.y = c.y;
             } else {
               next.width = Math.max(0.05, original.width * sx);
               next.height = Math.max(0.05, original.height * sy);
@@ -1089,6 +855,8 @@ const FloorPlanEditor: React.FC = () => {
           width: 1,
           height: d.h,
           rotation: 0,
+          color: d.nonStructural ? draftColor : undefined,
+          nonStructural: d.nonStructural,
         }
         : {
           id: crypto.randomUUID(),
@@ -1099,10 +867,16 @@ const FloorPlanEditor: React.FC = () => {
           width: w,
           height: h,
           rotation: 0,
+          color: d.nonStructural ? draftColor : undefined,
+          nonStructural: d.nonStructural,
         };
 
       updateDraft((plan) => {
-        plan.elements.push(element);
+        if (element.type === 'door' || element.type === 'window') {
+          plan.elements = placeOpeningOnWall(plan.elements, element, zoom);
+        } else {
+          plan.elements.push(element);
+        }
       });
       setSelection(new Set([element.id]));
       setDragCreate(null);
@@ -1289,7 +1063,10 @@ const FloorPlanEditor: React.FC = () => {
         </div>
 
         <div className="pointer-events-auto rounded-lg border border-white/10 bg-[#0f141b]/95 shadow-xl px-2 py-2 flex items-center gap-1.5 flex-wrap">
-          {TOOL_LIST.map((entry) => (
+          {STRUCTURAL_TOOLS.map((entryBase) => {
+            const entry = TOOL_META.get(entryBase.id);
+            if (!entry) return null;
+            return (
             <button
               key={entry.id}
               className={`px-2 py-1 rounded text-[11px] border flex items-center gap-1 ${tool === entry.id ? 'border-amber-400/60 bg-amber-400/15 text-amber-200' : 'border-white/10 hover:bg-white/10 text-gray-200'}`}
@@ -1299,12 +1076,43 @@ const FloorPlanEditor: React.FC = () => {
               {entry.icon}
               <span>{entry.label}</span>
             </button>
-          ))}
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="pointer-events-auto absolute left-3 top-26 z-10061 w-48 rounded-lg border border-white/10 bg-[#0f141b]/95 shadow-xl p-2 space-y-2">
+        <div className="text-[10px] uppercase tracking-wide text-gray-400">Drafting (2D only)</div>
+        <label className="flex items-center justify-between gap-2 text-xs text-gray-300">
+          Color
+          <input
+            type="color"
+            value={draftColor}
+            onChange={(e) => setDraftColor(e.target.value)}
+            className="h-7 w-12 rounded border border-white/15 bg-transparent"
+          />
+        </label>
+        <div className="space-y-1">
+          {DRAFTING_TOOLS.map((entryBase) => {
+            const entry = TOOL_META.get(entryBase.id);
+            if (!entry) return null;
+            return (
+              <button
+                key={entry.id}
+                className={`w-full px-2 py-1 rounded text-[11px] border flex items-center gap-1.5 ${tool === entry.id ? 'border-cyan-400/60 bg-cyan-400/15 text-cyan-200' : 'border-white/10 hover:bg-white/10 text-gray-200'}`}
+                onClick={() => setTool(entry.id)}
+                title={entry.label}
+              >
+                {entry.icon}
+                <span>{entry.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       <div className="absolute bottom-4 left-4 z-10061 text-xs text-gray-300 bg-[#0f141b]/90 border border-white/10 rounded px-2 py-1">
-        Tool: {tool} · Zoom: {zoom.toFixed(0)} · G/R/S transforms · X/Y lock · Space/MMB pan · Wheel zoom
+        Tool: {tool} · Zoom: {zoom.toFixed(0)} · G/R/S transforms · X/Y lock · Space/MMB pan · Wheel zoom · Polygon: click-click-close
       </div>
     </div>
   );

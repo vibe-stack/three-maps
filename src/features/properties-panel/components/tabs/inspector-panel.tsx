@@ -19,8 +19,9 @@ import { TerrainSection } from '../terrain-section';
 import { ensureFileIdForBlob, getSuggestedFilename } from '@/stores/files-store';
 import { useFloorPlanStore } from '@/stores/floor-plan-store';
 import { useGeometryStore } from '@/stores/geometry-store';
-import { createMeshFromGeometry } from '@/utils/geometry';
+import { createFace, createMeshFromGeometry, createVertex, vec2, vec3 } from '@/utils/geometry';
 import { buildArchGeometry, buildDoorGeometry, buildStairsGeometryWithOptions, buildWedgeGeometry, buildWindowGeometry } from '@/features/quick-brush/utils/brush-geometry';
+import { ShapeUtils } from 'three';
 
 const GREYBOX_MATERIAL_ID = 'mat-greybox-shared';
 let greyboxTextureFileId: string | null = null;
@@ -189,8 +190,58 @@ export const InspectorPanel: React.FC = () => {
       created.push(objId);
     };
 
+    const buildPolygonPrismGeometry = (points: Array<{ x: number; y: number }>, height: number) => {
+      if (points.length < 3) return null;
+      let cx = 0;
+      let cz = 0;
+      for (const p of points) {
+        cx += p.x;
+        cz += p.y;
+      }
+      cx /= points.length;
+      cz /= points.length;
+
+      const ring = points.map((p) => ({ x: p.x - cx, y: p.y - cz }));
+      const tris = ShapeUtils.triangulateShape(ring as any, []);
+      if (!tris.length) return null;
+
+      const vertices: ReturnType<typeof createVertex>[] = [];
+      const faces: ReturnType<typeof createFace>[] = [];
+      const bottom: string[] = [];
+      const top: string[] = [];
+
+      for (const p of ring) {
+        const vb = createVertex(vec3(p.x, 0, p.y), vec3(0, -1, 0), vec2(0, 0));
+        const vt = createVertex(vec3(p.x, height, p.y), vec3(0, 1, 0), vec2(0, 0));
+        vertices.push(vb, vt);
+        bottom.push(vb.id);
+        top.push(vt.id);
+      }
+
+      for (const tri of tris) {
+        const [a, b, c] = tri;
+        faces.push(createFace([top[a], top[b], top[c]]));
+        faces.push(createFace([bottom[c], bottom[b], bottom[a]]));
+      }
+
+      for (let i = 0; i < ring.length; i++) {
+        const n = (i + 1) % ring.length;
+        faces.push(createFace([bottom[i], bottom[n], top[n], top[i]]));
+      }
+
+      return { vertices, faces, centerX: cx, centerZ: cz };
+    };
+
     for (const el of plan.elements) {
-      if (el.type === 'text') continue;
+      if (el.type === 'text' || el.nonStructural || el.type === 'zone' || el.type === 'path' || el.type === 'poi' || el.type === 'spawn') continue;
+
+      if (el.shape === 'polygon' && el.points && el.points.length >= 3) {
+        const prism = buildPolygonPrismGeometry(el.points, h);
+        if (prism) {
+          placeGeometry('Polygon Volume', { vertices: prism.vertices as any, faces: prism.faces as any }, { x: prism.centerX, y: -h * 0.5, z: prism.centerZ }, 0);
+        }
+        continue;
+      }
 
       if (el.shape === 'line' && typeof el.x2 === 'number' && typeof el.y2 === 'number') {
         const dx = el.x2 - el.x;
@@ -203,24 +254,27 @@ export const InspectorPanel: React.FC = () => {
         if (el.type === 'wall') {
           placeCube('Wall', midX, midZ, length, h, 0.14, yaw);
         } else if (el.type === 'door') {
+          const doorHeight = Math.min(2.2, Math.max(1.9, h * 0.82));
           const geom = buildDoorGeometry(
             Math.max(0.5, length),
-            Math.min(2.2, h * 0.78),
+            doorHeight,
             0.12,
             0.12,
             0.72,
           );
           placeGeometry('Door', geom, { x: midX, y: -h * 0.5, z: midZ }, yaw);
         } else if (el.type === 'window') {
+          const windowHeight = Math.min(1.6, Math.max(1.1, h * 0.42));
+          const sill = Math.max(0.8, Math.min(h - windowHeight - 0.2, h * 0.32));
           const geom = buildWindowGeometry(
             Math.max(0.5, length),
-            Math.min(1.5, h * 0.5),
+            windowHeight,
             0.1,
             0.1,
             0.75,
             0.22,
           );
-          placeGeometry('Window', geom, { x: midX, y: 0.8 - h * 0.5, z: midZ }, yaw);
+          placeGeometry('Window', geom, { x: midX, y: sill - h * 0.5, z: midZ }, yaw);
         } else if (el.type === 'arch') {
           const geom = buildArchGeometry(
             Math.max(0.5, length),
