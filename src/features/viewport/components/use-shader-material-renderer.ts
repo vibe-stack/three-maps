@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { MeshStandardMaterial, Color, DoubleSide, Material } from 'three/webgpu';
 import { useMaterialNodes } from '@/features/materials/hooks/use-material-nodes';
 // Terrain maps are applied in TerrainView; this hook only builds the base material.
@@ -15,6 +15,17 @@ type Params = {
 export function useShaderMaterialRenderer({ displayMesh, shading, isSelected, materials }: Params): Material {
   // Get node material (hook must be called at top-level)
   const nodeMaterial = useMaterialNodes(shading === 'material' ? displayMesh?.materialId : undefined) as unknown as Material | undefined;
+  const stdRef = useRef<MeshStandardMaterial | null>(null);
+  if (!stdRef.current) {
+    stdRef.current = new MeshStandardMaterial({ side: DoubleSide, shadowSide: 1 });
+  }
+
+  useEffect(() => {
+    return () => {
+      stdRef.current?.dispose();
+      stdRef.current = null;
+    };
+  }, []);
   // no terrain coupling here
 
   // Build a standard material or prefer a node material when available.
@@ -41,17 +52,17 @@ export function useShaderMaterialRenderer({ displayMesh, shading, isSelected, ma
       color = new Color('#ff9900');
     }
 
-    const std = new MeshStandardMaterial({
-      color,
-      roughness,
-      metalness,
-      emissive,
-      emissiveIntensity,
-      wireframe: shading === 'wireframe',
-      side: DoubleSide,
-      flatShading: (displayMesh?.shading ?? 'flat') === 'flat',
-      shadowSide: 1,
-    });
+    const std = stdRef.current!;
+    std.color.copy(color);
+    std.roughness = roughness;
+    std.metalness = metalness;
+    std.emissive.copy(emissive);
+    std.emissiveIntensity = emissiveIntensity;
+    std.wireframe = shading === 'wireframe';
+    std.side = DoubleSide;
+    std.flatShading = (displayMesh?.shading ?? 'flat') === 'flat';
+    std.shadowSide = 1;
+    std.needsUpdate = true;
 
     if (nodeMaterial) {
       try {
