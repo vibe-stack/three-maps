@@ -170,11 +170,16 @@ export const buildEdgesFromFaces = (vertices: Vertex[], faces: Face[]): Edge[] =
 };
 
 /**
- * Splits an edge at the given position, inserting a new vertex and updating adjacent faces.
- * For quads, each adjacent quad is split into two quads (preserving quad topology).
- * For other polygon types, the midpoint vertex is inserted between the two edge endpoints.
+ * Splits an edge at the given position, inserting a new vertex M and updating adjacent faces.
+ * Each adjacent face is split into two proper sub-faces (no n+1 polygons left behind),
+ * so Three.js triangulation never introduces phantom edges.
+ *
+ *   Quad  [A,B,C,D] edge A→B  →  [A,M,D]  +  [M,B,C,D]   (tri + quad)
+ *   Tri   [A,B,C]   edge A→B  →  [A,M,C]  +  [M,B,C]     (two tris)
+ *   n-gon [v0..vn]  edge s→e  →  [vs,M,vs-1..ve+1]  +  [M,ve,ve+1..vs-1]
  *
  * Mutates `mesh` in place — call inside `geometryStore.updateMesh`.
+ * Returns the new vertex id, or null if the edge was not found.
  */
 export const splitEdge = (mesh: Mesh, edgeId: string, newPosition: Vector3): string | null => {
   const edge = mesh.edges.find(e => e.id === edgeId);
@@ -185,7 +190,7 @@ export const splitEdge = (mesh: Mesh, edgeId: string, newPosition: Vector3): str
   const vB = mesh.vertices.find(v => v.id === bId);
   if (!vA || !vB) return null;
 
-  // Create the new midpoint vertex at the provided position
+  // Create new vertex M at the provided position
   const midNormal = normalizeVec3({
     x: (vA.normal.x + vB.normal.x) / 2,
     y: (vA.normal.y + vB.normal.y) / 2,
@@ -196,7 +201,6 @@ export const splitEdge = (mesh: Mesh, edgeId: string, newPosition: Vector3): str
   mesh.vertices.push(midVertex);
   const mId = midVertex.id;
 
-  // Process each adjacent face
   const newFaces: Face[] = [];
   const facesToRemove = new Set<string>();
 
@@ -207,36 +211,46 @@ export const splitEdge = (mesh: Mesh, edgeId: string, newPosition: Vector3): str
     const ids = face.vertexIds;
     const n = ids.length;
 
-    // Find the index of A and B in this face (they must be adjacent)
-    let aIdx = -1;
-    let bIdx = -1;
+    // Find indices of A and B in this face
+    let aIdx = -1, bIdx = -1;
     for (let i = 0; i < n; i++) {
       if (ids[i] === aId) aIdx = i;
       if (ids[i] === bId) bIdx = i;
     }
     if (aIdx === -1 || bIdx === -1) continue;
 
-    // Determine order: edge goes a→b or b→a in this face's winding
-    const abAdjacent = (aIdx + 1) % n === bIdx;
-    const baAdjacent = (bIdx + 1) % n === aIdx;
-    if (!abAdjacent && !baAdjacent) continue;
+    // Determine winding order: edge s→e means ids[s] then ids[e] are adjacent
+    const abAdj = (aIdx + 1) % n === bIdx;
+    const baAdj = (bIdx + 1) % n === aIdx;
+    if (!abAdj && !baAdj) continue;
 
-    const edgeStart = abAdjacent ? aIdx : bIdx; // index of first vertex along edge in winding order
-    const edgeEnd = abAdjacent ? bIdx : aIdx;   // index of second vertex
+    const s = abAdj ? aIdx : bIdx; // edgeStart index in face winding
+    const e = abAdj ? bIdx : aIdx; // edgeEnd   index in face winding
 
-    // Insert M between edgeStart and edgeEnd, making an n+1 polygon.
-    // (A simple edge split always produces one additional vertex per adjacent face.)
     facesToRemove.add(faceId);
-    const newIds = [...ids];
-    newIds.splice(edgeEnd, 0, mId);
-    newFaces.push(createFace(newIds));
+
+    // Face2 = [M, ids[e], ids[(e+1)%n], ..., ids[(s-1+n)%n]]
+    // Starts with M, then the forward arc from e back to just before s.
+    const face2Ids: string[] = [mId];
+    for (let step = 0; step < n - 1; step++) {
+      face2Ids.push(ids[(e + step) % n]);
+    }
+
+    // Face1 = [ids[s], M, ids[(s-1+n)%n], ids[(s-2+n)%n], ..., ids[(e+1+n)%n]]
+    // Starts with ids[s], then M, then the backward arc from s-1 stopping before e.
+    const face1Ids: string[] = [ids[s], mId];
+    for (let step = 1; step < n - 1; step++) {
+      const idx = (s - step + n) % n;
+      if (idx === (e + 1) % n) break; // stop before we reach the vertex after e (already in face2)
+      face1Ids.push(ids[idx]);
+    }
+
+    if (face2Ids.length >= 3) newFaces.push(createFace(face2Ids));
+    if (face1Ids.length >= 3) newFaces.push(createFace(face1Ids));
   }
 
-  // Replace old faces with new ones
   mesh.faces = mesh.faces.filter(f => !facesToRemove.has(f.id));
   mesh.faces.push(...newFaces);
-
-  // Rebuild edges from updated faces
   mesh.edges = buildEdgesFromFaces(mesh.vertices, mesh.faces);
 
   return mId;
