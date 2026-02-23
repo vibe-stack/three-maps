@@ -10,7 +10,7 @@ export async function saveAs(blob: Blob, suggestedName: string, mimeType = 'appl
         suggestedName,
         types: [
           {
-            description: 'Gestalt 3D / Export',
+            description: 'Three Maps 3D / Export',
             accept: { [mimeType]: [`.${suggestedName.split('.').pop()}`] },
           },
         ],

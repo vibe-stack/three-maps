@@ -254,5 +254,5 @@ export const T3D_VERSION: T3DVersion = {
   patch: 0,
 };
 
-export const T3D_APPLICATION = 'Gestalt 3D Editor';
-export const T3D_APPLICATION_VERSION = '0.1.0';
+export const T3D_APPLICATION = 'Three Maps 3D Editor';
+export const T3D_APPLICATION_VERSION = '0.2.0';

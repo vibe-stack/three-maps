@@ -12,7 +12,6 @@ import { WorkspaceData, exportToT3D } from '@/utils/t3d-exporter';
 import { openImportDialog } from '@/utils/t3d-importer';
 import { openGLTFImportDialog, type ImportSummary } from '@/utils/gltf-importer';
 import { Box, Download, FolderOpen, Save, Heart, Check, Minimize2 } from 'lucide-react';
-import DonateDialog from '@/components/donate-dialog';
 import { useUVEditorStore } from '@/stores/uv-editor-store';
 import ExportDialog from '@/features/export/components/export-dialog';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -297,7 +296,7 @@ const MenuBar: React.FC<Props> = ({ onOpenShaderEditor }) => {
 		<div className="h-8 w-full border-b border-white/10 bg-[#0b0e13]/80 backdrop-blur supports-[backdrop-filter]:bg-[#0b0e13]/60 flex items-center px-3 select-none z-30">
 			<div className="flex items-center gap-2 text-sm text-gray-300 font-medium">
 				<Box className="w-4 h-4 text-gray-400" aria-hidden />
-				<span className="tracking-wide">Gestalt</span>
+				<span className="tracking-wide">3Maps</span>
 			</div>
 			<div className="mx-2 h-4 w-px bg-white/10" />
 
@@ -459,14 +458,6 @@ const MenuBar: React.FC<Props> = ({ onOpenShaderEditor }) => {
 				>
 					<Minimize2 className="w-4 h-4" />
 				</button>
-				{/* SPONSORING AREA */}
-				<button
-					className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-rose-300 hover:text-white hover:bg-rose-500/20 border border-rose-500/30"
-					onClick={() => setDonateOpen(true)}
-				>
-					<Heart className="w-3.5 h-3.5" /> Donate
-				</button>
-				<DonateDialog open={donateOpen} onOpenChange={setDonateOpen} />
 				<ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
 			</div>
 		</div>

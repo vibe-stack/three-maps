@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Gestalt 3D Editor",
+  title: "Three Maps Editor",
   description: "A (soon) powerful 3D editing tool",
 };
 
