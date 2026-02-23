@@ -415,6 +415,12 @@ const MenuBar: React.FC<Props> = ({ onOpenShaderEditor }) => {
 										{viewportStore.showAxes ? <Check className="w-3.5 h-3.5 text-gray-300" /> : <span className="w-3.5 h-3.5" />}
 									</span>
 								</Menu.Item>
+								<Menu.Item className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-gray-200" onClick={() => workspace.togglePerformanceOverlay?.()}>
+									<span className="flex items-center justify-between w-full">
+										<span>Performance Overlay</span>
+										{workspace.showPerformanceOverlay ? <Check className="w-3.5 h-3.5 text-gray-300" /> : <span className="w-3.5 h-3.5" />}
+									</span>
+								</Menu.Item>
 								<Menu.Separator className="my-1 h-px bg-white/10" />
 								<Menu.Item className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-gray-200" onClick={() => onOpenShaderEditor?.()}>Shader Editor…</Menu.Item>
 								<Menu.Item className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-gray-200" onClick={() => setUVOpen(true)}>UV Editor…</Menu.Item>

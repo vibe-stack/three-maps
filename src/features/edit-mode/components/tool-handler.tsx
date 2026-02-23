@@ -30,6 +30,7 @@ import {
   createWheelHandler,
   createCommitHandler,
 } from "./tools";
+import { getSelectedVertices } from "./tools/utils/selection-utils";
 
 export const ToolHandler: React.FC<ToolHandlerProps> = ({
   meshId,
@@ -97,6 +98,12 @@ export const ToolHandler: React.FC<ToolHandlerProps> = ({
     accumulatorRef.current = accumulator;
   }, [accumulator]);
 
+  const applyLocalPreview = (vertices: any[]) => {
+    localVerticesRef.current = vertices as any;
+    setLocalVertices(vertices as any);
+    onLocalDataChange(vertices as any);
+  };
+
   // Handle mouse movement during tool operations
   useEffect(() => {
     if (
@@ -131,8 +138,7 @@ export const ToolHandler: React.FC<ToolHandlerProps> = ({
         );
 
         moveAccumRef.current = result.newAccumulator;
-        setLocalVertices(result.vertices);
-        onLocalDataChange(result.vertices);
+        applyLocalPreview(result.vertices);
       } else if (toolState.tool === "rotate") {
         const result = handleRotateOperation(
           event,
@@ -148,8 +154,7 @@ export const ToolHandler: React.FC<ToolHandlerProps> = ({
           rotation: result.newRotation,
         };
         setAccumulator((prev) => ({ ...prev, rotation: result.newRotation }));
-        setLocalVertices(result.vertices);
-        onLocalDataChange(result.vertices);
+        applyLocalPreview(result.vertices);
       } else if (toolState.tool === "scale") {
         const result = handleScaleOperation(
           event,
@@ -165,8 +170,7 @@ export const ToolHandler: React.FC<ToolHandlerProps> = ({
           scale: result.newScale,
         };
         setAccumulator((prev) => ({ ...prev, scale: result.newScale }));
-        setLocalVertices(result.vertices);
-        onLocalDataChange(result.vertices);
+        applyLocalPreview(result.vertices);
       } else if (toolState.tool === "extrude") {
         const result = handleExtrudeOperation(
           event,
@@ -180,8 +184,7 @@ export const ToolHandler: React.FC<ToolHandlerProps> = ({
         );
 
         moveAccumRef.current = result.newAccumulator;
-        setLocalVertices(result.vertices);
-        onLocalDataChange(result.vertices);
+        applyLocalPreview(result.vertices);
       } else if (toolState.tool === "inset") {
         const result = handleInsetOperation(
           event,
@@ -196,8 +199,7 @@ export const ToolHandler: React.FC<ToolHandlerProps> = ({
           scale: result.newScale,
         };
         setAccumulator((prev) => ({ ...prev, scale: result.newScale }));
-        setLocalVertices(result.vertices);
-        onLocalDataChange(result.vertices);
+        applyLocalPreview(result.vertices);
       } else if (toolState.tool === "bevel") {
         const result = handleBevelOperation(
           event,
@@ -215,8 +217,7 @@ export const ToolHandler: React.FC<ToolHandlerProps> = ({
           scale: result.newWidth,
         };
         setAccumulator((prev) => ({ ...prev, scale: result.newWidth }));
-        setLocalVertices(result.vertices);
-        onLocalDataChange(result.vertices);
+        applyLocalPreview(result.vertices);
       } else if (toolState.tool === "chamfer") {
         const result = handleChamferOperation(
           event,
@@ -235,8 +236,7 @@ export const ToolHandler: React.FC<ToolHandlerProps> = ({
         // persist current distance in localData for commit
         const data = (toolState.localData as any) || {};
         toolStore.setLocalData({ ...data, distance: result.newDistance });
-        setLocalVertices(result.vertices);
-        onLocalDataChange(result.vertices);
+        applyLocalPreview(result.vertices);
       } else if (toolState.tool === "fillet") {
         const result = handleFilletOperation(
           event,
@@ -255,8 +255,7 @@ export const ToolHandler: React.FC<ToolHandlerProps> = ({
         // persist current radius in localData for commit
         const data = (toolState.localData as any) || {};
         toolStore.setLocalData({ ...data, radius: result.newRadius });
-        setLocalVertices(result.vertices);
-        onLocalDataChange(result.vertices);
+        applyLocalPreview(result.vertices);
       }
     };
 
@@ -266,7 +265,10 @@ export const ToolHandler: React.FC<ToolHandlerProps> = ({
       const toolState = useToolStore.getState();
 
       const latestLocalVertices = localVerticesRef.current;
-      const latestSelectedFaceIds = selectedFaceIdsRef.current;
+      const latestSelectedFaceIds =
+        selectedFaceIdsRef.current.length > 0
+          ? selectedFaceIdsRef.current
+          : getSelectedVertices(meshId).faceIds;
       const latestAccumulator = accumulatorRef.current;
 
       if (latestLocalVertices.length > 0) {

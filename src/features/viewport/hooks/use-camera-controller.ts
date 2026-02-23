@@ -1,17 +1,14 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useEffect } from 'react';
+import { useThree } from '@react-three/fiber';
 import { useViewportStore } from '@/stores/viewport-store';
 
 // Keeps the R3F camera in sync with the zustand camera state and reports back changes.
 export function useCameraController() {
   const cameraState = useViewportStore((s) => s.camera);
-  const setCamera = useViewportStore((s) => s.setCamera);
   const activeSceneCameraId = useViewportStore((s) => s.activeCameraObjectId ?? null);
   const { camera } = useThree();
-  const lastCommitMsRef = useRef(0);
-  const minCommitIntervalMs = 120;
 
   // Only drive the R3F default camera from editor state when no scene camera is active.
   useEffect(() => {
@@ -32,30 +29,4 @@ export function useCameraController() {
     camera.far = cameraState.far;
     camera.updateProjectionMatrix();
   }, [camera, cameraState, activeSceneCameraId]);
-
-  // Report back position changes only when we're controlling the default editor camera.
-  useFrame((state) => {
-    if (useViewportStore.getState().activeCameraObjectId) return;
-    const current = useViewportStore.getState().camera.position;
-    const x = camera.position.x,
-      y = camera.position.y,
-      z = camera.position.z;
-    if (
-      Math.abs(current.x - x) > 1e-5 ||
-      Math.abs(current.y - y) > 1e-5 ||
-      Math.abs(current.z - z) > 1e-5
-    ) {
-      const nowMs = state.clock.elapsedTime * 1000;
-      if (nowMs - lastCommitMsRef.current < minCommitIntervalMs) return;
-      lastCommitMsRef.current = nowMs;
-      setCamera({
-        position: { x, y, z },
-        target: useViewportStore.getState().camera.target,
-        up: useViewportStore.getState().camera.up,
-        fov: useViewportStore.getState().camera.fov,
-        near: useViewportStore.getState().camera.near,
-        far: useViewportStore.getState().camera.far,
-      });
-    }
-  });
 }

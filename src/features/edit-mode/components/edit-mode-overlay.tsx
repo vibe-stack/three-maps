@@ -11,7 +11,7 @@ import { EdgeRenderer } from '@/features/edit-mode/components/edge-renderer';
 import { FaceRenderer } from '@/features/edit-mode/components/face-renderer';
 import { ToolHandler } from '@/features/edit-mode/components/tool-handler';
 import { EdgeMidpointRenderer } from '@/features/edit-mode/components/edge-midpoint-renderer';
-import { Color, Vector3 } from 'three/webgpu';
+import { Color, Euler, Matrix4, Quaternion, Vector3 } from 'three/webgpu';
 import { splitEdge } from '@/utils/geometry';
 import { useSelectionVertices } from '@/features/edit-mode/hooks/use-selection-vertices';
 import { useSceneStore } from '@/stores/scene-store';
@@ -101,10 +101,47 @@ const EditModeOverlay: React.FC = () => {
 	// Find the scene object that references this mesh so we can apply its transform in Edit Mode
 	const sceneStore = useSceneStore();
 	const objTransform = useMemo(() => {
-		if (!meshId) return { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } };
-		const obj = Object.values(sceneStore.objects).find((o) => o.meshId === meshId);
-		return obj?.transform ?? { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } };
-	}, [sceneStore.objects, meshId]);
+		const identity = { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } };
+		if (!meshId) return identity;
+
+		const selectedObjectId = sceneStore.selectedObjectId;
+		const selectedObject = selectedObjectId ? sceneStore.objects[selectedObjectId] : undefined;
+		const baseObject =
+			(selectedObject && selectedObject.meshId === meshId ? selectedObject : undefined) ??
+			Object.values(sceneStore.objects).find((o) => o.meshId === meshId);
+		if (!baseObject) return identity;
+
+		const worldMatrix = new Matrix4().identity();
+		const chain: typeof baseObject[] = [];
+		let current: typeof baseObject | undefined = baseObject;
+		while (current) {
+			chain.push(current);
+			current = current.parentId ? sceneStore.objects[current.parentId] : undefined;
+		}
+
+		for (let i = chain.length - 1; i >= 0; i--) {
+			const t = chain[i].transform;
+			const q = new Quaternion().setFromEuler(new Euler(t.rotation.x, t.rotation.y, t.rotation.z));
+			const localM = new Matrix4().compose(
+				new Vector3(t.position.x, t.position.y, t.position.z),
+				q,
+				new Vector3(t.scale.x, t.scale.y, t.scale.z)
+			);
+			worldMatrix.multiply(localM);
+		}
+
+		const pos = new Vector3();
+		const quat = new Quaternion();
+		const scl = new Vector3();
+		worldMatrix.decompose(pos, quat, scl);
+		const rot = new Euler().setFromQuaternion(quat);
+
+		return {
+			position: { x: pos.x, y: pos.y, z: pos.z },
+			rotation: { x: rot.x, y: rot.y, z: rot.z },
+			scale: { x: scl.x, y: scl.y, z: scl.z },
+		};
+	}, [sceneStore.objects, sceneStore.selectedObjectId, meshId]);
 
 	// Loop Cut managed by hook
 	const { lines: loopcutLines } = useLoopcut(mesh || null, meshId || null, objTransform);

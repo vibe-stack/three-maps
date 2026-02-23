@@ -100,10 +100,11 @@ export function applyRotateOperation(
   axisLock: AxisLock,
   center: Vector3
 ): Vertex[] {
+  const effectiveAxis: AxisLock = axisLock === 'none' ? 'z' : axisLock;
   const rotation = new Euler(
-    axisLock === 'x' ? rotationAngle : 0,
-    axisLock === 'y' ? rotationAngle : 0,
-    axisLock === 'z' ? rotationAngle : 0
+    effectiveAxis === 'x' ? rotationAngle : 0,
+    effectiveAxis === 'y' ? rotationAngle : 0,
+    effectiveAxis === 'z' ? rotationAngle : 0
   );
   
   const rotationMatrix = new Matrix4().makeRotationFromEuler(rotation);

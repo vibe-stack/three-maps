@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { WebGPURenderer } from 'three/webgpu';
 import { WebGLRenderer } from 'three';
@@ -18,6 +18,7 @@ import { useToolStore } from '@/stores/tool-store';
 import { useActiveCameraBinding } from '../hooks/use-active-camera';
 import CameraAspectSync from './camera-aspect-sync';
 import { useQuickBrushStore } from '@/features/quick-brush/stores/quick-brush-store';
+import PerformanceSampler from './performance-sampler';
 
 // Runs inside Canvas to bind the R3F default camera to the active scene camera
 function ActiveCameraBinding() {
@@ -28,6 +29,8 @@ function ActiveCameraBinding() {
 const EditorViewport: React.FC = () => {
   const [dpr, setDpr] = useState(1.5)
   const camera = useViewportStore((s) => s.camera);
+  const orbitRef = useRef<any>(null);
+  const orbitDraggingRef = useRef(false);
   // activeCameraObjectId is consumed inside useActiveCameraBinding hook
   const shadingMode = useViewportStore((s) => s.shadingMode);
   const autoOrbitIntervalSec = useViewportStore((s) => s.autoOrbitIntervalSec ?? 0);
@@ -39,6 +42,26 @@ const EditorViewport: React.FC = () => {
   const marqueeActive = useToolStore((s) => s.marqueeActive);
   const brushPlacing = useToolStore((s) => s.brushPlacing);
   const brushCameraLocked = viewMode === 'brush' && activeBrush !== 'select';
+  const syncCameraFromOrbit = useCallback(() => {
+    const controls = orbitRef.current;
+    if (!controls) return;
+
+    const p = controls.object?.position;
+    const t = controls.target;
+    if (!p || !t) return;
+
+    useViewportStore.getState().setCamera({
+      position: { x: p.x, y: p.y, z: p.z },
+      target: { x: t.x, y: t.y, z: t.z },
+    });
+  }, []);
+
+  useEffect(() => {
+    const controls = orbitRef.current;
+    if (!controls || orbitDraggingRef.current) return;
+    controls.target.set(camera.target.x, camera.target.y, camera.target.z);
+    controls.update();
+  }, [camera.target.x, camera.target.y, camera.target.z]);
   // Camera binding runs inside Canvas via ActiveCameraBinding
 
   // Camera controller runs inside Canvas via component
@@ -84,8 +107,13 @@ const EditorViewport: React.FC = () => {
         <CameraController />
         <AutoOrbitController />
         <OrbitControls
+          ref={orbitRef}
           makeDefault
-          target={[camera.target.x, camera.target.y, camera.target.z]}
+          onStart={() => { orbitDraggingRef.current = true; }}
+          onEnd={() => {
+            orbitDraggingRef.current = false;
+            syncCameraFromOrbit();
+          }}
           dampingFactor={0.1}
           // Avoid camera inertia after sculpting by disabling inputs directly during strokes
           enabled={true}
@@ -98,6 +126,7 @@ const EditorViewport: React.FC = () => {
           // For one full rotation every N seconds: speed = 60 / N
           autoRotateSpeed={autoOrbitIntervalSec ? 60 / autoOrbitIntervalSec : 0}
         />
+        <PerformanceSampler />
         <SceneContent />
         {/* <WorldEffects /> */}
       </Canvas>

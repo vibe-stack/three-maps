@@ -8,6 +8,7 @@ interface WorkspaceState {
   currentFileName: string | null;
   fileHandle: any | null; // FileSystemFileHandle when supported
   minimalUi?: boolean;
+  showPerformanceOverlay?: boolean;
 }
 
 interface WorkspaceActions {
@@ -15,6 +16,8 @@ interface WorkspaceActions {
   reset: () => void;
   setMinimalUi?: (v: boolean) => void;
   toggleMinimalUi?: () => void;
+  setShowPerformanceOverlay?: (v: boolean) => void;
+  togglePerformanceOverlay?: () => void;
 }
 
 type WorkspaceStore = WorkspaceState & WorkspaceActions;
@@ -25,9 +28,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       currentFileName: null,
       fileHandle: null,
       minimalUi: false,
+      showPerformanceOverlay: false,
       setFileInfo: (name, handle) => set((s) => { s.currentFileName = name; s.fileHandle = handle; }),
       setMinimalUi: (v: boolean) => set((s) => { s.minimalUi = v; }),
       toggleMinimalUi: () => set((s) => { s.minimalUi = !s.minimalUi; }),
+      setShowPerformanceOverlay: (v: boolean) => set((s) => { s.showPerformanceOverlay = v; }),
+      togglePerformanceOverlay: () => set((s) => { s.showPerformanceOverlay = !s.showPerformanceOverlay; }),
       reset: () => set((s) => { s.currentFileName = null; s.fileHandle = null; }),
     }))
   )

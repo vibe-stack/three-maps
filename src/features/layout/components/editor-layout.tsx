@@ -24,6 +24,7 @@ import { useTerrainEditorStore } from '@/stores/terrain-editor-store';
 import QuickBrushBar from '@/features/quick-brush/components/quick-brush-bar';
 import FloorPlanEditor from '@/features/floor-plan/components/floor-plan-editor';
 import { useFloorPlanStore } from '@/stores/floor-plan-store';
+import PerformanceOverlay from '@/features/viewport/components/performance-overlay';
 
 const EditorLayout: React.FC = () => {
   const shaderOpen = useShaderEditorStore((s) => s.open);
@@ -54,6 +55,9 @@ const EditorLayout: React.FC = () => {
         <div className="relative flex-1">
           {/* 3D Viewport fills region */}
           <EditorViewport />
+
+          {/* Optional performance overlay */}
+          <PerformanceOverlay />
 
           {/* Floating Top Toolbar */}
           <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 top-3 z-20 space-y-2 flex flex-col items-center">
