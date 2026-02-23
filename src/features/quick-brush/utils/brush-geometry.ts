@@ -395,3 +395,195 @@ export function buildArchGeometry(
 
   return { vertices, faces };
 }
+
+// ---------- Pipe (hollow cylinder) ----------
+// Origin at bottom-center, aligned to local +Y.
+export function buildPipeGeometry(
+  outerRadius: number,
+  height: number,
+  wallThickness: number = 0.12,
+  radialSegments: number = 24,
+): BuiltGeometry {
+  const seg = Math.max(6, Math.min(96, Math.floor(radialSegments)));
+  const ro = Math.max(0.02, outerRadius);
+  const ri = Math.max(0.005, ro - Math.max(0.005, Math.min(ro * 0.9, wallThickness)));
+  const h = Math.max(0.02, height);
+
+  const vertices: ReturnType<typeof createVertex>[] = [];
+  const faces: ReturnType<typeof createFace>[] = [];
+
+  const outerBottom: ReturnType<typeof createVertex>[] = [];
+  const outerTop: ReturnType<typeof createVertex>[] = [];
+  const innerBottom: ReturnType<typeof createVertex>[] = [];
+  const innerTop: ReturnType<typeof createVertex>[] = [];
+
+  for (let i = 0; i < seg; i++) {
+    const t = (i / seg) * Math.PI * 2;
+    const c = Math.cos(t);
+    const s = Math.sin(t);
+
+    const ob = createVertex(vec3(c * ro, 0, s * ro));
+    const ot = createVertex(vec3(c * ro, h, s * ro));
+    const ib = createVertex(vec3(c * ri, 0, s * ri));
+    const it = createVertex(vec3(c * ri, h, s * ri));
+
+    outerBottom.push(ob);
+    outerTop.push(ot);
+    innerBottom.push(ib);
+    innerTop.push(it);
+    vertices.push(ob, ot, ib, it);
+  }
+
+  for (let i = 0; i < seg; i++) {
+    const n = (i + 1) % seg;
+
+    faces.push(createFace([
+      outerBottom[i].id,
+      outerBottom[n].id,
+      outerTop[n].id,
+      outerTop[i].id,
+    ]));
+
+    faces.push(createFace([
+      innerBottom[i].id,
+      innerTop[i].id,
+      innerTop[n].id,
+      innerBottom[n].id,
+    ]));
+
+    faces.push(createFace([
+      outerTop[i].id,
+      outerTop[n].id,
+      innerTop[n].id,
+      innerTop[i].id,
+    ]));
+
+    faces.push(createFace([
+      outerBottom[i].id,
+      innerBottom[i].id,
+      innerBottom[n].id,
+      outerBottom[n].id,
+    ]));
+  }
+
+  return { vertices, faces };
+}
+
+// ---------- Duct (hollow rectangular prism) ----------
+// Origin at bottom-center, aligned to local +Y.
+export function buildDuctGeometry(
+  width: number,
+  height: number,
+  depth: number,
+  wallThickness: number = 0.12,
+): BuiltGeometry {
+  const w = Math.max(0.05, width);
+  const h = Math.max(0.05, height);
+  const d = Math.max(0.05, depth);
+  const hw = w / 2;
+  const hd = d / 2;
+
+  const maxT = Math.min(hw * 0.85, h * 0.45, hd * 0.85);
+  const t = Math.max(0.01, Math.min(maxT, wallThickness));
+
+  const ihw = Math.max(0.01, hw - t);
+  const ih = Math.max(0.01, h - t * 1.2);
+  const ihd = Math.max(0.01, hd - t);
+
+  const vertices: ReturnType<typeof createVertex>[] = [];
+  const faces: ReturnType<typeof createFace>[] = [];
+
+  const ofbl = createVertex(vec3(-hw, 0, -hd));
+  const ofbr = createVertex(vec3(hw, 0, -hd));
+  const oftl = createVertex(vec3(-hw, h, -hd));
+  const oftr = createVertex(vec3(hw, h, -hd));
+  const obbl = createVertex(vec3(-hw, 0, hd));
+  const obbr = createVertex(vec3(hw, 0, hd));
+  const obtl = createVertex(vec3(-hw, h, hd));
+  const obtr = createVertex(vec3(hw, h, hd));
+
+  const ifbl = createVertex(vec3(-ihw, t, -ihd));
+  const ifbr = createVertex(vec3(ihw, t, -ihd));
+  const iftl = createVertex(vec3(-ihw, ih, -ihd));
+  const iftr = createVertex(vec3(ihw, ih, -ihd));
+  const ibbl = createVertex(vec3(-ihw, t, ihd));
+  const ibbr = createVertex(vec3(ihw, t, ihd));
+  const ibtl = createVertex(vec3(-ihw, ih, ihd));
+  const ibtr = createVertex(vec3(ihw, ih, ihd));
+
+  vertices.push(ofbl, ofbr, oftl, oftr, obbl, obbr, obtl, obtr, ifbl, ifbr, iftl, iftr, ibbl, ibbr, ibtl, ibtr);
+
+  faces.push(createFace([ofbl.id, obbl.id, obtl.id, oftl.id]));
+  faces.push(createFace([ofbr.id, oftr.id, obtr.id, obbr.id]));
+  faces.push(createFace([ofbl.id, ofbr.id, obbr.id, obbl.id]));
+  faces.push(createFace([oftl.id, obtl.id, obtr.id, oftr.id]));
+
+  faces.push(createFace([ifbl.id, iftl.id, ibtl.id, ibbl.id]));
+  faces.push(createFace([ifbr.id, ibbr.id, ibtr.id, iftr.id]));
+  faces.push(createFace([ifbl.id, ibbl.id, ibbr.id, ifbr.id]));
+  faces.push(createFace([iftl.id, iftr.id, ibtr.id, ibtl.id]));
+
+  faces.push(createFace([ofbl.id, oftl.id, iftl.id, ifbl.id]));
+  faces.push(createFace([ofbr.id, ifbr.id, iftr.id, oftr.id]));
+  faces.push(createFace([ofbl.id, ifbl.id, ifbr.id, ofbr.id]));
+  faces.push(createFace([oftl.id, oftr.id, iftr.id, iftl.id]));
+
+  faces.push(createFace([obbl.id, ibbl.id, ibtl.id, obtl.id]));
+  faces.push(createFace([obbr.id, obtr.id, ibtr.id, ibbr.id]));
+  faces.push(createFace([obbl.id, obbr.id, ibbr.id, ibbl.id]));
+  faces.push(createFace([obtl.id, ibtl.id, ibtr.id, obtr.id]));
+
+  return { vertices, faces };
+}
+
+// ---------- Spiral Stairs ----------
+// Origin at bottom-center, aligned to local +Y.
+export function buildSpiralStairsGeometry(
+  outerRadius: number,
+  height: number,
+  steps: number,
+  innerRadiusRatio: number = 0.35,
+  turns: number = 1,
+): BuiltGeometry {
+  const clampedSteps = Math.max(3, Math.min(128, Math.floor(steps)));
+  const ro = Math.max(0.08, outerRadius);
+  const ri = Math.max(0.02, ro * Math.max(0.05, Math.min(0.85, innerRadiusRatio)));
+  const h = Math.max(0.05, height);
+  const stepH = h / clampedSteps;
+  const sweep = Math.PI * 2 * Math.max(0.25, Math.min(4, turns));
+  const aStart = -Math.PI / 2;
+
+  const vertices: ReturnType<typeof createVertex>[] = [];
+  const faces: ReturnType<typeof createFace>[] = [];
+
+  const point = (r: number, a: number, y: number) => vec3(Math.cos(a) * r, y, Math.sin(a) * r);
+
+  for (let i = 0; i < clampedSteps; i++) {
+    const t0 = i / clampedSteps;
+    const t1 = (i + 1) / clampedSteps;
+    const a0 = aStart + sweep * t0;
+    const a1 = aStart + sweep * t1;
+    const y0 = i * stepH;
+    const y1 = (i + 1) * stepH;
+
+    const ib0 = createVertex(point(ri, a0, y0));
+    const ib1 = createVertex(point(ri, a1, y0));
+    const ob0 = createVertex(point(ro, a0, y0));
+    const ob1 = createVertex(point(ro, a1, y0));
+    const it0 = createVertex(point(ri, a0, y1));
+    const it1 = createVertex(point(ri, a1, y1));
+    const ot0 = createVertex(point(ro, a0, y1));
+    const ot1 = createVertex(point(ro, a1, y1));
+
+    vertices.push(ib0, ib1, ob0, ob1, it0, it1, ot0, ot1);
+
+    faces.push(createFace([ib0.id, ob0.id, ob1.id, ib1.id]));
+    faces.push(createFace([it0.id, it1.id, ot1.id, ot0.id]));
+    faces.push(createFace([ib0.id, ib1.id, it1.id, it0.id]));
+    faces.push(createFace([ob0.id, ot0.id, ot1.id, ob1.id]));
+    faces.push(createFace([ib0.id, it0.id, ot0.id, ob0.id]));
+    faces.push(createFace([ib1.id, ob1.id, ot1.id, it1.id]));
+  }
+
+  return { vertices, faces };
+}

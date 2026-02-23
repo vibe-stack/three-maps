@@ -152,7 +152,7 @@ const QuickBrushHandler: React.FC = () => {
 
       } else if (phase === 'height') {
         // Phase 2 click: door advances to cutout; stairs advance to curve; others commit
-        if (activeBrush === 'door') {
+        if (activeBrush === 'door' || activeBrush === 'window') {
           useQuickBrushStore.getState().beginCutout();
           heightDragRef.current = null;
         } else if (activeBrush === 'stairs' || activeBrush === 'closed-stairs') {
@@ -268,13 +268,15 @@ const QuickBrushHandler: React.FC = () => {
       if (phaseRef.current !== 'height') return;
 
       const activeBrush = useQuickBrushStore.getState().activeBrush;
-      if (activeBrush !== 'stairs' && activeBrush !== 'closed-stairs' && activeBrush !== 'arch') return;
+      if (activeBrush !== 'stairs' && activeBrush !== 'closed-stairs' && activeBrush !== 'arch' && activeBrush !== 'spiral-stairs') return;
 
       e.preventDefault();
       const step = e.deltaY < 0 ? 1 : -1;
       if (activeBrush === 'stairs') {
         useQuickBrushStore.getState().adjustStairsCount(step);
       } else if (activeBrush === 'closed-stairs') {
+        useQuickBrushStore.getState().adjustStairsCount(step);
+      } else if (activeBrush === 'spiral-stairs') {
         useQuickBrushStore.getState().adjustStairsCount(step);
       } else {
         useQuickBrushStore.getState().adjustArchSegments(step);

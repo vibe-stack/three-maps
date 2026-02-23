@@ -9,6 +9,10 @@ import { StairsBrush } from './stairs-brush';
 import { ClosedStairsBrush } from './closed-stairs-brush';
 import { DoorBrush } from './door-brush';
 import { ArchBrush } from './arch-brush';
+import { WindowBrush } from './window-brush';
+import { PipeBrush } from './pipe-brush';
+import { DuctBrush } from './duct-brush';
+import { SpiralStairsBrush } from './spiral-stairs-brush';
 import type { BrushDefinition, BrushShape } from './types';
 
 export const BRUSH_REGISTRY: BrushDefinition[] = [
@@ -23,6 +27,10 @@ export const BRUSH_REGISTRY: BrushDefinition[] = [
   ClosedStairsBrush,
   DoorBrush,
   ArchBrush,
+  WindowBrush,
+  PipeBrush,
+  DuctBrush,
+  SpiralStairsBrush,
 ];
 
 export function getBrush(id: BrushShape): BrushDefinition {

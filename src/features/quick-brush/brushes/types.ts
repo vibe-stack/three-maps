@@ -15,7 +15,11 @@ export type BrushShape =
   | 'stairs'
   | 'closed-stairs'
   | 'door'
-  | 'arch';
+  | 'arch'
+  | 'window'
+  | 'pipe'
+  | 'duct'
+  | 'spiral-stairs';
 
 export type FootprintType = 'rect' | 'radial';
 
@@ -55,7 +59,7 @@ export interface PreviewTransform {
 export interface BrushDefinition {
   id: BrushShape;
   label: string;
-  /** Keyboard shortcut '1'–'8' */
+  /** Keyboard shortcut key */
   shortcut: string;
   /** Small SVG icon node */
   icon: React.ReactNode;

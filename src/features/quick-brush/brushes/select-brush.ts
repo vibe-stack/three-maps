@@ -19,7 +19,7 @@ const NOOP_TRANSFORM: PreviewTransform = { position: [0, 0, 0], quaternion: [0, 
 export const SelectBrush: BrushDefinition = {
   id: 'select',
   label: 'Select',
-  shortcut: '0',
+  shortcut: 'v',
   icon: SelectIcon,
   footprintType: 'rect',
 
